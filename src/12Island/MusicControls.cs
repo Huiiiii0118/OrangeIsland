@@ -66,6 +66,8 @@ public sealed class MusicSeekSlider : Slider
     public double RestHeight { get; init; } = 4;
     public double HoverHeight { get; init; } = 8;
     public double DurationSeconds { get; init; }
+    // The bubble reads as a time on the seek bar; the volume bar shows a percentage instead.
+    public bool TimeBubble { get; init; } = true;
     public bool AnimationsEnabled { get; init; }
     public Color Accent { get; init; }
     private readonly SolidColorBrush _fill = new();
@@ -113,6 +115,12 @@ public sealed class MusicSeekSlider : Slider
         double x = Math.Clamp(Mouse.GetPosition(this).X, 0, Math.Max(0, ActualWidth));
         double fraction = Seeking ? Value : x / Math.Max(1, ActualWidth);
         if (Seeking) x = ActualWidth * fraction;
+        if (!TimeBubble)
+        {
+            BubbleText = $"{Math.Round(fraction * 100)}%";
+            BubbleX = Math.Clamp(x - 26, 0, Math.Max(0, ActualWidth - 52));
+            return;
+        }
         var time = TimeSpan.FromSeconds(Math.Floor(DurationSeconds * fraction));
         BubbleText = time.TotalHours >= 1 ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}" : $"{(int)time.TotalMinutes}:{time.Seconds:00}";
         BubbleX = Math.Clamp(x - 26, 0, Math.Max(0, ActualWidth - 52));

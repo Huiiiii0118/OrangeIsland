@@ -63,6 +63,13 @@ public partial class MainWindow
     private Grid? _musicInfo;
     private Canvas? _musicControls;
     private Button? _musicFullControl;
+    // The transport row's volume control: a mute toggle at the body's left edge and a bar between it and the mode button.
+    private Button? _musicMute;
+    private MusicSeekSlider? _musicVolume;
+    private string _musicMuteIcon = "";
+    private string _musicVolumeKey = "";
+    private double _musicMuteSize;
+    private bool _updatingVolume;
     private TextBlock? _musicSmtcHint;
     private readonly Dictionary<MediaCommand, (MusicControlButton Button, string Icon)> _musicControlButtons = new();
     private MusicEqualizer? _musicEqualizer, _compactEqualizer;
@@ -509,7 +516,7 @@ public partial class MainWindow
         // hit testing and its fade-in on every metadata, artwork or lyric update.
         _handover.Hold(MusicContent, keep: _musicControls);
         _musicSeek = null; _musicElapsed = null; _musicDuration = null; _musicEqualizer = null; _musicTitle = null; _lyricCurrent = null; _lyricPrevious = null; _lyricNext = null; _lyricsAbove = []; _lyricsBelow = []; _musicMessage = null; _musicInfo = null;
-        MusicContent.Margin = new Thickness(c.Side, 0, c.Side, c.Bottom);
+        MusicContent.Margin = new Thickness(c.Side, 0, c.Side, layout.BottomMargin);
         if (track is null)
         {
             MusicContent.Children.Clear(); _musicControls = null; _musicFullControl = null; _musicSmtcHint = null; _musicControlButtons.Clear();
@@ -704,6 +711,8 @@ public partial class MainWindow
         {
             // Without SMTC the transport cannot do anything, so its row carries the explanation instead of three dead glyphs.
             // The wording is fixed; the row is fitted by trying the full entry label first, then smaller type, then the short label.
+            if (_musicMute is not null) _musicMute.Visibility = Visibility.Collapsed;
+            if (_musicVolume is not null) _musicVolume.Visibility = Visibility.Collapsed;
             if (_musicSmtcHint is null)
             {
                 _musicSmtcHint = new TextBlock { FontFamily = UI.TextFont, TextWrapping = TextWrapping.Wrap, LineStackingStrategy = LineStackingStrategy.BlockLineHeight };
@@ -745,6 +754,63 @@ public partial class MainWindow
             if (layout.ShowFullControl)
                 foreach (var label in MusicLayout.FullControlLabels)
                     if ((entryWidth = EntryWidth(label)) <= layout.FullControlRoom) { entryLabel = label; break; }
+            // Mute first, bar second, both at the body's left edge — the edge the cover, the bar and the elapsed time share.
+            // DeckPages.MusicMinWidth keeps this room wide enough; the mode button starts just past the bar.
+            double volumeX = c.Mode + 10;
+            double volumeRoom = Math.Floor(layout.ModeX - 12 - volumeX);
+            if (_musicMute is null)
+            {
+                _musicMute = new MusicControlButton { Style = (Style)FindResource("MusicControl") };
+                _musicMute.Click += (_, _) => { if (Native.MasterVolume.SetMute(!(Native.MasterVolume.Read()?.Mute ?? false))) SyncVolume(); };
+                controls.Children.Add(_musicMute);
+            }
+            var mute = _musicMute;
+            bool muted = Native.MasterVolume.Read() is { } level && level.Mute;
+            string muteIcon = $"{(muted ? "mute" : "volume")}|{c.Mode}|{PanelTheme.Generation}";
+            if (_musicMuteIcon != muteIcon || _musicMuteSize != c.Mode)
+            {
+                _musicMuteIcon = muteIcon; _musicMuteSize = c.Mode;
+                mute.Content = MusicVisuals.Icon(muted ? "mute" : "volume", c.Mode, UI.Brush(UI.Primary));
+                AutomationProperties.SetName(mute, muted ? Loc.T("取消静音", "Unmute") : Loc.T("静音", "Mute"));
+            }
+            mute.Visibility = Visibility.Visible;
+            mute.Width = c.Mode + 16; mute.Height = c.Mode + 16;
+            bool muteMoves = glide && mute.IsVisible;
+            PageHandover.Glide(mute, Canvas.LeftProperty, -8, muteMoves);
+            PageHandover.Glide(mute, Canvas.TopProperty, (c.Play - c.Mode) / 2 - 8, muteMoves);
+            // The slider carries the seek bar's look, whose accent follows the cover: it is rebuilt when that look changes,
+            // as the seek slider itself is rebuilt on every render.
+            string volumeKey = $"{((SolidColorBrush)_musicAccent).Color}|{c.Bar}|{c.BarHover}|{c.SeekRow}|{PanelTheme.Generation}|{animate}";
+            if (_musicVolume is null || _musicVolumeKey != volumeKey)
+            {
+                if (_musicVolume is not null) controls.Children.Remove(_musicVolume);
+                _musicVolumeKey = volumeKey;
+                _musicVolume = new MusicSeekSlider { Style = (Style)FindResource("MusicSeek"), RestHeight = c.Bar, HoverHeight = c.BarHover, BarHeight = c.Bar,
+                    Accent = ((SolidColorBrush)_musicAccent).Color, TimeBubble = false, AnimationsEnabled = animate, Maximum = 1, SmallChange = .05, LargeChange = .25 };
+                // Slider handles move-to-point before instance handlers; observe that handled event too, as the seek bar does.
+                _musicVolume.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((sender, _) =>
+                {
+                    var slider = (Slider)sender;
+                    var track = slider.Template.FindName("PART_Track", slider) as System.Windows.Controls.Primitives.Track;
+                    if (Mouse.LeftButton == MouseButtonState.Pressed && track?.Thumb.IsMouseOver != true) slider.CaptureMouse();
+                }), true);
+                _musicVolume.AddHandler(MouseLeftButtonUpEvent, new MouseButtonEventHandler((_, _) => _musicVolume?.ReleaseMouseCapture()), true);
+                // The slider's own move-to-point and the control's drag both work through the seeking state, as they do on the seek bar.
+                _musicVolume.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler((sender, _) => { if (sender is MusicSeekSlider seeking) seeking.Seeking = true; }), true);
+                _musicVolume.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((sender, _) => { if (sender is MusicSeekSlider seeking) seeking.Seeking = false; }), true);
+                _musicVolume.ValueChanged += (_, _) => { if (!_updatingVolume) Native.MasterVolume.Set((float)_musicVolume.Value); };
+                AutomationProperties.SetName(_musicVolume, Loc.T("音量", "Volume"));
+                controls.Children.Add(_musicVolume);
+            }
+            var volume = _musicVolume;
+            volume.Visibility = volumeRoom >= 28 ? Visibility.Visible : Visibility.Collapsed;
+            if (volume.Visibility == Visibility.Visible)
+            {
+                volume.Width = volumeRoom;
+                bool volumeMoves = glide && volume.IsVisible;
+                PageHandover.Glide(volume, Canvas.LeftProperty, volumeX, volumeMoves);
+                Canvas.SetTop(volume, Math.Floor((c.Play - c.SeekRow) / 2));
+            }
         }
         foreach (var (id, slot) in _musicControlButtons)
             slot.Button.Visibility = visibleControls.Contains(id) ? Visibility.Visible : Visibility.Collapsed;
@@ -975,6 +1041,7 @@ public partial class MainWindow
         var position = _seekPreview.Position(track, DateTimeOffset.UtcNow);
         // The expanded page's controls stay in the tree while collapsed; they are brought up to date when the panel opens.
         bool page = _expanded && IsMusicPage;
+        if (page) SyncVolume();
         if (page && !_seeking && _musicSeek is not null) { _updatingSeek = true; _musicSeek.Value = track.Duration > TimeSpan.Zero ? position.TotalSeconds / track.Duration.TotalSeconds : 0; _updatingSeek = false; UpdateSeekLabels(_musicSeek.Value); }
         var line = CurrentLyrics(track);
         if (page && _lyricCurrent is not null) _lyricCurrent.Text = line.Current;
@@ -1009,6 +1076,25 @@ public partial class MainWindow
         double length = double.IsFinite(Collapsed.Surface.Width) ? Math.Max(0, Collapsed.Surface.Width) : 0;
         double progress = track.HasTimeline && track.Duration > TimeSpan.Zero ? Math.Clamp(position.TotalSeconds / track.Duration.TotalSeconds, 0, 1) : 0;
         if (_frame.Across) MusicIndicator.Height = length * progress; else MusicIndicator.Width = length * progress;
+    }
+    // The volume bar and the mute glyph follow the system's level, so a change made outside the panel (the keys, another
+    // mixer) reaches them too. Called with the position's own cadence, a few times a second; a drag sets its own value.
+    private void SyncVolume()
+    {
+        if (Native.MasterVolume.Read() is not { } level) return;
+        // A drag owns the value; an external change must not pull the thumb out from under the pointer. The mute glyph
+        // still follows the system when the bar has no room and was hidden.
+        if (_musicVolume is { IsVisible: true } volume && !volume.Seeking && !volume.IsMouseCaptureWithin)
+        {
+            _updatingVolume = true; volume.Value = level.Level; _updatingVolume = false;
+        }
+        string muteIcon = $"{(level.Mute ? "mute" : "volume")}|{_musicMuteSize}|{PanelTheme.Generation}";
+        if (_musicMute is not null && _musicMuteIcon != muteIcon)
+        {
+            _musicMuteIcon = muteIcon;
+            _musicMute.Content = MusicVisuals.Icon(level.Mute ? "mute" : "volume", _musicMuteSize, UI.Brush(UI.Primary));
+            AutomationProperties.SetName(_musicMute, level.Mute ? Loc.T("取消静音", "Unmute") : Loc.T("静音", "Mute"));
+        }
     }
     private (string Previous, string Current, string Next) CurrentLyrics(MediaTrack track)
     {

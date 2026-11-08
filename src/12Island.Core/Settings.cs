@@ -353,7 +353,7 @@ public sealed class DeckSettings
     // The resize shortcut: modifiers with the arrow keys ("Ctrl+Alt+Arrows", HotkeyText.Arrows); unset by default.
     public string ResizeHotkey { get; set; } = "";
     public bool MusicPage { get; set; } = true;
-    public double MusicWidth { get; set; } = 440;
+    public double MusicWidth { get; set; } = DeckPages.MusicMinWidth;
     public double MusicHeight { get; set; } = 200;
     // The notch and the capsule each keep their own choices; the indicator only offers the playback progress.
     public bool NotchSummary { get; set; } = true;
@@ -685,7 +685,7 @@ public sealed class DeckSettings
         Width = double.IsFinite(Width) ? Math.Clamp(Width, DeckPages.MinWidth, DeckPages.MaxWidth) : 760;
         Width = Math.Max(Width, MinimumWidth);
         Height = double.IsFinite(Height) ? Math.Clamp(Height, DeckPages.MinHeight, DeckPages.MaxHeight) : 240;
-        MusicWidth = double.IsFinite(MusicWidth) ? Math.Clamp(MusicWidth, DeckPages.MinWidth, DeckPages.MaxWidth) : 440;
+        MusicWidth = double.IsFinite(MusicWidth) ? Math.Clamp(MusicWidth, DeckPages.MusicMinWidth, DeckPages.MaxWidth) : DeckPages.MusicMinWidth;
         MusicHeight = double.IsFinite(MusicHeight) ? Math.Clamp(MusicHeight, DeckPages.MinHeight, DeckPages.MaxHeight) : 200;
         MonitorWidth = double.IsFinite(MonitorWidth) ? Math.Clamp(MonitorWidth, DeckPages.MinWidth, DeckPages.MaxWidth) : MonitorSizes.Default.Width;
         MonitorHeight = double.IsFinite(MonitorHeight) ? Math.Clamp(MonitorHeight, DeckPages.MinHeight, DeckPages.MaxHeight) : MonitorSizes.Default.Height;

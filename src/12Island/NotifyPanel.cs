@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -454,17 +455,37 @@ public partial class MainWindow
             }
             else
             {
-                // Who wrote, then how many are waiting: the two read as one line, the name in full strength.
-                var sender = UI.Fixed(Sender(NoticeText(group.Latest).Name), font, line, UI.Primary, FontWeights.SemiBold, UI.TextFont);
-                sender.VerticalAlignment = VerticalAlignment.Center;
-                sender.TextTrimming = TextTrimming.CharacterEllipsis;
-                sender.MaxWidth = senderRoom;
-                sender.Margin = column ? new Thickness(0) : new Thickness(gap, 0, 0, 0);
-                item.Children.Add(sender);
-                var count = UI.Fixed(Loc.T($"通知{group.Count}条", $"{group.Count} new"), font, line, UI.Secondary, FontWeights.Normal, UI.TextFont);
-                count.VerticalAlignment = VerticalAlignment.Center;
-                count.Margin = column ? new Thickness(0) : new Thickness(CompactMusicLayout.Half(4 * scale), 0, 0, 0);
-                item.Children.Add(count);
+                // Who wrote, then how many are waiting. Sideways the two are runs of one text block, so they share a
+                // baseline and the capsule reads as one even line; stacked they stay separate lines.
+                string name = Sender(NoticeText(group.Latest).Name);
+                if (column)
+                {
+                    var sender = UI.Fixed(name, font, line, UI.Primary, FontWeights.SemiBold, UI.TextFont);
+                    sender.VerticalAlignment = VerticalAlignment.Center;
+                    sender.TextTrimming = TextTrimming.CharacterEllipsis;
+                    sender.MaxWidth = senderRoom;
+                    sender.Margin = new Thickness(0, 0, 0, 0);
+                    item.Children.Add(sender);
+                    var count = UI.Fixed(Loc.T($"通知{group.Count}条", $"{group.Count} new"), font, line, UI.Secondary, FontWeights.Normal, UI.TextFont);
+                    count.VerticalAlignment = VerticalAlignment.Center;
+                    count.Margin = new Thickness(0, CompactMusicLayout.Half(1 * scale), 0, 0);
+                    item.Children.Add(count);
+                }
+                else
+                {
+                    var text = new TextBlock
+                    {
+                        FontFamily = UI.TextFont, FontSize = font, Foreground = UI.Brush(UI.Primary),
+                        LineHeight = line, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+                        VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+                        MaxWidth = senderRoom + CompactMusicLayout.Whole(50 * scale),
+                        Margin = new Thickness(gap, 0, 0, 0)
+                    };
+                    Typography.SetNumeralAlignment(text, FontNumeralAlignment.Tabular);
+                    text.Inlines.Add(new Run(name) { FontWeight = FontWeights.SemiBold, Foreground = UI.Brush(UI.Primary) });
+                    text.Inlines.Add(new Run(" " + Loc.T($"通知{group.Count}条", $"{group.Count} new")) { Foreground = UI.Brush(UI.Secondary) });
+                    item.Children.Add(text);
+                }
             }
             item.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             widest = Math.Max(widest, Math.Ceiling(item.DesiredSize.Width));
@@ -489,7 +510,9 @@ public partial class MainWindow
         var pill = new Border
         {
             CornerRadius = new CornerRadius(CompactMusicLayout.Whole(10 * scale)),
-            Background = UI.Brush(PanelTheme.Hex("fill")),
+            // No fill of its own: the capsule sits on the island's black surface, and a painted card under the text read
+            // as a grey band that squeezed it. A transparent brush keeps the whole pill, padding included, clickable.
+            Background = Brushes.Transparent,
             Padding = new Thickness(pad, CompactMusicLayout.Whole(1 * scale), pad, CompactMusicLayout.Whole(1 * scale)),
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             MaxWidth = double.PositiveInfinity,

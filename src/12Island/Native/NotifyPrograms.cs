@@ -14,19 +14,19 @@ internal static class NotifyPrograms
 
     private static readonly Entry[] Entries =
     [
-        new("weixin", "微信", NotifySource.WeChat, ["weixin", "wechat"]),
-        new("qq", "QQ", NotifySource.Qq, ["qq", "qqnt"]),
-        new("tim", "TIM", NotifySource.Qq, ["tim"]),
-        new("wxwork", "企业微信", NotifySource.App, ["wxwork", "wework", "wecom"]),
-        new("dingtalk", "钉钉", NotifySource.App, ["dingtalk"]),
-        new("feishu", "飞书", NotifySource.App, ["feishu", "lark"]),
-        new("teams", "Teams", NotifySource.App, ["teams", "ms-teams"]),
-        new("slack", "Slack", NotifySource.App, ["slack"]),
-        new("discord", "Discord", NotifySource.App, ["discord"]),
-        new("telegram", "Telegram", NotifySource.App, ["telegram"]),
-        new("whatsapp", "WhatsApp", NotifySource.App, ["whatsapp"]),
-        new("line", "LINE", NotifySource.App, ["line"]),
-        new("skype", "Skype", NotifySource.App, ["skype"]),
+        new("weixin", "微信", NotifySource.WeChat, ["weixin", "wechat", "wechatappex", "wechatweb", "wechatplayer"]),
+        new("qq", "QQ", NotifySource.Qq, ["qq", "qqnt", "qqprotect", "qqexternal", "qqpctray"]),
+        new("tim", "TIM", NotifySource.Qq, ["tim", "timwp"]),
+        new("wxwork", "企业微信", NotifySource.App, ["wxwork", "wework", "wecom", "wxworkweb", "wecomweb"]),
+        new("dingtalk", "钉钉", NotifySource.App, ["dingtalk", "dingding"]),
+        new("feishu", "飞书", NotifySource.App, ["feishu", "lark", "feishuapp", "larkapp"]),
+        new("teams", "Teams", NotifySource.App, ["teams", "ms-teams", "msteams", "teamsapp"]),
+        new("slack", "Slack", NotifySource.App, ["slack", "slackapp"]),
+        new("discord", "Discord", NotifySource.App, ["discord", "discordptb", "discordcanary", "discorddevelopment"]),
+        new("telegram", "Telegram", NotifySource.App, ["telegram", "telegramdesktop"]),
+        new("whatsapp", "WhatsApp", NotifySource.App, ["whatsapp", "whatsappdesktop", "whatsappapp"]),
+        new("line", "LINE", NotifySource.App, ["line", "linewin", "linedesktop", "lineapp"]),
+        new("skype", "Skype", NotifySource.App, ["skype", "skypeapp", "skypehost"]),
         new("zoom", "Zoom", NotifySource.App, ["zoom"]),
         new("wemeet", "腾讯会议", NotifySource.App, ["wemeetapp", "tencentmeeting"]),
         new("notion", "Notion", NotifySource.App, ["notion"]),
@@ -60,7 +60,12 @@ internal static class NotifyPrograms
     // A program's helper process (WeChatAppEx, QQProtect) keeps its program's name at the front. A short key must not claim
     // an unrelated process that merely begins the same way: "lineage.exe" is a game, not LINE.
     private static readonly string[] HelperSuffixes =
-        ["app", "protect", "helper", "nt", "web", "browser", "update", "service", "plugin", "crash", "render", "tray", "exe"];
+    [
+        "app", "protect", "helper", "nt", "web", "browser", "update", "service", "plugin", "crash", "render", "tray", "exe",
+        "win", "win32", "64", "x64", "x86", "desktop", "stable", "beta", "canary", "ptb", "dev", "launcher", "host",
+        "external", "sandbox", "gpu", "utility", "crashpad", "webview", "webview2", "child", "agent", "module",
+        "setup", "background", "notification", "toast", "bridge", "player", "pctray"
+    ];
 
     // The program whose process this is, by its name: only the programs listed above count.
     public static NotifyProgram? FromProcess(string process)

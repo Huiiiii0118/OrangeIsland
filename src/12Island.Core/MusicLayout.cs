@@ -2,7 +2,8 @@ namespace TwelveIsland.Core;
 
 // Type sizes and spacing of the music page. Each value is given at the three size presets and at the largest panel
 // (density 0, 1, 2 and 3) and runs linearly between them, so a panel between two presets gets sizes between theirs.
-// Bottom is the margin below the transport glyphs and equals Side, so the page has the same inset on three sides.
+// Bottom equals Side. Calculate adds BottomMargin for the "展开 / 收起" buttons at the bottom right, scaled to the panel
+// height so a short page keeps its cover and lyrics instead of losing them to the clearance.
 public sealed record MusicMetrics(double Toolbar, double Top, double Bottom, double Side, double Gap, double MinColumn,
     double Title, double TitleLine, double Artist, double ArtistLine, double Lyric, double LyricLine, double MiddleGap,
     double Time, double TimeLine, double SeekRow, double Bar, double BarHover, double SectionGap, double ControlsGap,
@@ -38,7 +39,7 @@ public sealed record MusicMetrics(double Toolbar, double Top, double Bottom, dou
 public sealed record MusicLayout(MusicMetrics Metrics, double Density, double BodyWidth, double BodyHeight, double Cover, double CoverY, double CoverRadius,
     double TextX, double TextWidth, bool MergeTitle, double HeaderHeight, double MiddleHeight, int LyricLines, bool ShowMessage,
     double ProgressY, double ProgressHeight, double TimesY, double ControlsY, double ControlGap, double TripletX, double TripletWidth,
-    double ModeX, bool ShowFullControl, double FullControlRoom)
+    double ModeX, bool ShowFullControl, double FullControlRoom, double BottomMargin)
 {
     // The entry label shortens step by step to the room right of the transport.
     // In English the second step keeps the meaning in two words; "En…" in Segoe UI is narrower than "启…".
@@ -67,7 +68,10 @@ public sealed record MusicLayout(MusicMetrics Metrics, double Density, double Bo
     {
         double density = DensityFor(width, height);
         var c = MusicMetrics.At(density);
-        double bodyW = width - 2 * c.Side, bodyH = height - c.Toolbar - c.Top - c.Bottom;
+        // The "展开 / 收起" buttons float over the bottom-right corner. Clear them with extra room below the last row,
+        // scaled to the panel's height: a short page gives less of it rather than losing its cover and lyrics.
+        double bottomMargin = c.Bottom + Math.Clamp((height - 140) / 2, 0, PanelHeader.PinBarClearance);
+        double bodyW = width - 2 * c.Side, bodyH = height - c.Toolbar - c.Top - bottomMargin;
         // The transport glyphs occupy 3..21 of a 24-unit square; their ink ends at the body bottom.
         double controlsY = Math.Round(bodyH - c.Play * 7 / 8), inkTop = controlsY + c.Play / 8;
         // The times sit just below the bar, clear of it while the hovered bar is thicker.
@@ -87,7 +91,9 @@ public sealed record MusicLayout(MusicMetrics Metrics, double Density, double Bo
         bool showMessage = message && room >= c.LyricLine;
         // The play button sits at the centre of the panel, with previous and next spread out with the panel's width
         // rather than packed beside it. The mode button is left of previous, with the same gap as between the others.
-        double gap = Math.Round(Math.Clamp(bodyW * .14, c.Play * 1.2, c.Play * 2.6));
+        // The ceiling leaves the transport centred without swallowing the whole left edge: the mute toggle and the volume
+        // bar sit there, so on a wide page the three buttons do not spread far enough to squeeze them off the row.
+        double gap = Math.Round(Math.Clamp(bodyW * .14, c.Play * 1.2, c.Play * 2.2));
         double tripletW = c.Skip * 2 + c.Play + 2 * gap;
         double tripletX = Math.Floor((bodyW - tripletW) / 2 + .5), modeX = tripletX - gap - c.Mode;
         // Netease and Apple Music without full control offer the entry at the right end of the transport row. The entry
@@ -97,7 +103,8 @@ public sealed record MusicLayout(MusicMetrics Metrics, double Density, double Bo
         if (!enable) fullControlRoom = 0;
         double radius = Math.Clamp(Math.Round(cover * .08), 5, 16);
         return new(c, density, bodyW, bodyH, cover, coverY, radius, textX, textW, merge, headH, cover - headH, lines, showMessage,
-            timeline ? progressY : 0, timeline ? c.SeekRow : 0, timesY, controlsY, gap, tripletX, tripletW, modeX, enable, fullControlRoom) { UpperHeight = upper };
+            timeline ? progressY : 0, timeline ? c.SeekRow : 0, timesY, controlsY, gap, tripletX, tripletW, modeX, enable, fullControlRoom,
+            bottomMargin) { UpperHeight = upper };
     }
 
     // Without the cover the upper part has two columns, so the titles and the lyrics are not read as one block: the title,

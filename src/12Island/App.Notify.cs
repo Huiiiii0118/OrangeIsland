@@ -13,6 +13,10 @@ public partial class App
     private NotifyWatch? _notifyWatch;
     private TaskbarWatch? _taskbarWatch;
     private string _notifyFolder = "";
+    // Bringing a watched program up by hand reads its notices too, not only a click on the capsule. The timer follows the
+    // foreground window; a program running in the tray does not own it and is not "opened" by this test.
+    private DispatcherTimer? _foregroundWatch;
+    private IntPtr _foregroundWindow;
     // No timer clears unread notices any more: the capsule stays while anything is unread. Kept only to stop a timer
     // left over from an earlier run when the app exits (StopNotify).
     private readonly Dictionary<string, DispatcherTimer> _noticeTimers = new(StringComparer.Ordinal);
@@ -75,11 +79,45 @@ public partial class App
             _taskbarWatch.Settled -= TaskbarSettled;
             _taskbarWatch.Dispose(); _taskbarWatch = null;
         }
+        // One second catches a window the taskbar has just raised without doing work on every UI frame. Starting from the
+        // window already in front means the program the user happened to be in when the app launched is not "opened" again.
+        if (wanted && _foregroundWatch is null)
+        {
+            _foregroundWatch = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(1) };
+            _foregroundWatch.Tick += (_, _) => CheckForegroundRead();
+            _foregroundWindow = ForegroundProgram.Window();
+            _foregroundWatch.Start();
+        }
+        else if (!wanted && _foregroundWatch is not null)
+        {
+            _foregroundWatch.Stop(); _foregroundWatch = null;
+        }
         _notifyWatch?.ApplyInterval();
+    }
+
+    // A notice is read not only by clicking the capsule: opening its program by hand — taskbar, dock, Alt+Tab, or a chat
+    // window inside it — answers it as well. Only a change of foreground window counts as opening, so a message that
+    // arrives while the user is already looking at that window is still announced. Reading follows the capsule's click
+    // exactly: the notices stay in the list, only their unread state ends, and only for this program. Marking a program
+    // that has nothing unread does nothing, so a switch between two of its windows is harmless.
+    private void CheckForegroundRead()
+    {
+        IntPtr window = ForegroundProgram.Window();
+        if (window == _foregroundWindow) return;
+        _foregroundWindow = window;
+        if (Exiting || Notices is not { Unread: > 0 } store) return;
+        // The shared recognition — process, a Store app's CoreWindow, then a title that is not a browser's or a document's
+        // — covers every program the watch can announce. None of them can leave a reminder behind after it was opened.
+        if (ForegroundProgram.Program(window) is not { } program) return;
+        store.MarkProgramRead(program.Key);
+        // The mailbox read over IMAP has no window of its own; opening any mail client answers those notices too.
+        if (program.Source == NotifySource.Mail) store.MarkProgramRead(NotifyPrograms.MailKey);
+        CancelTimer(program.Key);
     }
 
     internal void StopNotify()
     {
+        _foregroundWatch?.Stop(); _foregroundWatch = null;
         _notifyWatch?.Dispose(); _notifyWatch = null;
         foreach (var timer in _noticeTimers.Values) timer.Stop();
         _noticeTimers.Clear();

@@ -35,11 +35,14 @@ public static class DeckPages
     // Every page's size lies within these; the usage page is also at least as wide as its columns need (MinimumWidth).
     // Sizes are before the scale (PanelScales): drawn at 150 %, a page of the largest size is 1800 x 600 DIP.
     public const double MinWidth = 440, MaxWidth = 1200, MinHeight = 140, MaxHeight = 400;
+    // The music page needs room at the left of the transport for a mute toggle followed by a usable volume bar.
+    public const double MusicMinWidth = 660;
     // The widest a page can be on a monitor with this work area: drawn at the scale, the work area's width less 12 DIP each side.
     public static double MaxWidthOn(double workWidth, double scale = 1) => Math.Max(MinWidth, Math.Min(MaxWidth, Math.Floor((workWidth - 24) / scale)));
 
     public static (double MinWidth, double MaxWidth, double MinHeight, double MaxHeight) Limits(DeckSettings settings, DeckPage page)
-        => (page == DeckPage.Usage ? Math.Max(MinWidth, settings.MinimumWidth) : MinWidth, MaxWidth, MinHeight, MaxHeight);
+        => (page switch { DeckPage.Usage => Math.Max(MinWidth, settings.MinimumWidth), DeckPage.Music => MusicMinWidth, _ => MinWidth },
+            MaxWidth, MinHeight, MaxHeight);
 
     // Sets a page's size, as dragging an edge of the open panel does; the values are kept within the page's limits.
     public static void SetSize(DeckSettings settings, DeckPage page, double width, double height)

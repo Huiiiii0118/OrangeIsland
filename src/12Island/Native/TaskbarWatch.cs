@@ -274,22 +274,11 @@ internal sealed class TaskbarWatch : IDisposable
     }
 
     // Which of the watched programs a window belongs to, by its process first and by its title where the name was changed.
-    private static NotifyProgram? ProgramOf(IntPtr handle)
-    {
-        GetWindowThreadProcessId(handle, out var pid);
-        if (pid == 0 || pid == CurrentPid) return null;
-        string process = "";
-        try { process = Process.GetProcessById((int)pid).ProcessName; }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { }
-        if (NotifyPrograms.FromProcess(process) is { } known) return known;
-        // The process name decides, and a window title that names the program stands in for it: a renamed launcher whose
-        // window is flashed still reads as the program it holds.
-        var title = new StringBuilder(256);
-        GetWindowText(handle, title, title.Capacity);
-        return NotifyPrograms.FromTitle(title.ToString());
-    }
+    // The same answer the foreground read uses, so a program that can announce a message is always recognised again when
+    // its window comes to the front. The watch also accepts a title from a host window (a web chat, a renamed launcher),
+    // which is how it has always found programs it has no process name for.
+    private static NotifyProgram? ProgramOf(IntPtr handle) => ForegroundProgram.Program(handle, allowHostTitles: true);
 
-    private static readonly uint CurrentPid = (uint)Environment.ProcessId;
     private static uint PidOf(IntPtr handle) { GetWindowThreadProcessId(handle, out uint pid); return pid; }
     private delegate IntPtr WndProcDelegate(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
     private delegate void WinEventDelegate(IntPtr hook, int @event, IntPtr window, int objectId, int childId, uint thread, uint time);
