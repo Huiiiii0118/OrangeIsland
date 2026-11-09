@@ -18,13 +18,13 @@ try {
     # Each version gets a clean output folder, so files of an earlier release never end up in this one.
     Get-ChildItem -LiteralPath $outputPath -File | Remove-Item
     # The application is published self-contained, so it runs without a separate .NET install, and packed by the installer.
-    dotnet publish src/12Island/12Island.csproj -c Release -r win-x64 --self-contained true -p:Version=$Version -o $publishPath
+    dotnet publish src/OrangeIsland/OrangeIsland.csproj -c Release -r win-x64 --self-contained true -p:Version=$Version -o $publishPath
     if ($LASTEXITCODE -ne 0) { throw 'Application publish failed.' }
     $iscc = & (Join-Path $PSScriptRoot 'Get-InnoSetup.ps1')
-    & $iscc -qp "-dAppVersion=$Version" "-dSourceDir=$publishPath" "-o$outputPath" installer/12Island.iss
+    & $iscc -qp "-dAppVersion=$Version" "-dSourceDir=$publishPath" "-o$outputPath" installer/OrangeIsland.iss
     if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed.' }
-    $installer = Get-Item -LiteralPath (Join-Path $outputPath "12Island-$Version-Setup.exe")
-    $portable = New-PortablePackage -SourceDir $publishPath -Destination (Join-Path $outputPath "12Island-$Version-Portable-x64.zip")
+    $installer = Get-Item -LiteralPath (Join-Path $outputPath "OrangeIsland-$Version-Setup.exe")
+    $portable = New-PortablePackage -SourceDir $publishPath -Destination (Join-Path $outputPath "OrangeIsland-$Version-Portable-x64.zip")
     # The app reads update.json from the latest release and verifies the package against it before using it. file, size and
     # sha256 describe the installer, as every installed version expects; portable describes the zip for portable copies.
     $manifest = [ordered]@{

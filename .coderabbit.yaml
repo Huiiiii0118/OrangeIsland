@@ -31,10 +31,10 @@ reviews:
   path_instructions:
     - path: 'src/**'
       instructions: |
-        12Island 使用 .NET 10、C# 和 WPF，仅支持 Windows 11。
+        OrangeIsland 使用 .NET 10、C# 和 WPF，仅支持 Windows 11。
         使用简洁、正式的中文反馈。优先报告有代码依据的功能错误、回归、资源泄漏和安全问题，说明触发条件与影响，避免仅因个人偏好建议重构。
         检查 UI 线程访问、异步取消、事件订阅和资源释放，以及悬浮窗口空闲时的 CPU、内存和动画开销。
-        正式实例必须按当前用户解析真实的 AppData/Local/12Island/settings.json，不能硬编码用户名或使用打包应用 LocalCache 下的私有副本。自动化测试使用独立临时目录。
+        正式实例必须按当前用户解析真实的 AppData/Local/OrangeIsland/settings.json，不能硬编码用户名或使用打包应用 LocalCache 下的私有副本。自动化测试使用独立临时目录。
         Atoll 仅作为产品交互参考，不得复制、翻译或移植其 GPL v3 源码到本 Apache 2.0 项目。
     - path: 'tests/**'
       instructions: |

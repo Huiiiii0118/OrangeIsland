@@ -10,7 +10,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 . (Join-Path $PSScriptRoot 'ReleaseNotes.ps1')
 Push-Location $projectRoot
-$work = Join-Path ([IO.Path]::GetTempPath()) "TwelveIsland-notes-$([Guid]::NewGuid().ToString('N'))"
+$work = Join-Path ([IO.Path]::GetTempPath()) "OrangeIsland-notes-$([Guid]::NewGuid().ToString('N'))"
 try {
     if (!$ReleaseNotes) { $ReleaseNotes = "releases/$Version.md" }
     $notesPath = (Resolve-Path -LiteralPath $ReleaseNotes).Path

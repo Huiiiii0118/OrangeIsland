@@ -45,7 +45,8 @@ output/
 dev-docs/
 
 # Release assets are uploaded to GitHub Releases, not the repository
-12Island-*-windows-x64.exe
+OrangeIsland-*-windows-x64.exe
+ThirdPartyNotices-*.txt
 # Baidu netdisk upload placeholders
 *.baiduyun.uploading.cfg
 dist-release/

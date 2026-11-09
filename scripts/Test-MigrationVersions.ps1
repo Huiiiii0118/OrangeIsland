@@ -4,12 +4,12 @@ param(
 )
 # A settings migration step runs only for files saved by an earlier version than its label (see SettingsMigrations.cs),
 # so a step added to a branch is labelled with the version that branch builds: the newest releases/<version>.md, as in
-# src/12Island/ReleaseVersion.targets. On dev that version must still be in development. Once release/<version> exists
+# src/OrangeIsland/ReleaseVersion.targets. On dev that version must still be in development. Once release/<version> exists
 # or a beta or release of it is tagged, dev's work ships in a later version, and a step labelled with the earlier one
 # would never run for the users who installed it. Release notes files are added by the maintainer, never for a step.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$migrations = 'src/12Island.Core/SettingsMigrations.cs'
+$migrations = 'src/OrangeIsland.Core/SettingsMigrations.cs'
 
 function Get-StepVersions([string]$Text) {
     $steps = [regex]::Match($Text, '(?s)\bSteps\s*=\s*\[(.*?)\];')

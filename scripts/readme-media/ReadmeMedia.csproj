@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Renders the README images from 12 island's own interface code with invented data. Usage is described at the top of Program.cs. -->
+  <!-- Renders the README images from Orange island's own interface code with invented data. Usage is described at the top of Program.cs. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
@@ -12,6 +12,6 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\12Island\12Island.csproj" />
+    <ProjectReference Include="..\..\src\OrangeIsland\OrangeIsland.csproj" />
   </ItemGroup>
 </Project>

@@ -8,13 +8,13 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using TwelveIsland;
-using TwelveIsland.Core;
-using TwelveIsland.Native;
+using OrangeIsland;
+using OrangeIsland.Core;
+using OrangeIsland.Native;
 
 namespace ReadmeMedia;
 
-// Renders the README images with TwelveIsland's own panel code and invented data. Nothing is read from this computer:
+// Renders the README images with OrangeIsland's own panel code and invented data. Nothing is read from this computer:
 // every snapshot, song and cover below is made up, the usage service points at an empty folder, the network is
 // replaced by a handler that always fails, and media detection is never started. The panel window stays transparent
 // and off screen; each image is taken from its visual tree with RenderTargetBitmap.
@@ -33,7 +33,7 @@ internal static class Program
         int exit = 0;
         var app = new App();
         app.InitializeComponent();
-        // App raises Startup as soon as the dispatcher runs, even without Application.Run. TwelveIsland's OnStartup would
+        // App raises Startup as soon as the dispatcher runs, even without Application.Run. OrangeIsland's OnStartup would
         // start a real instance with real data, or ask the running one to open its settings. OnStartup calls the base
         // method first, so an exception from the Startup event ends it before anything else happens.
         app.Startup += (_, _) => throw new StartupSkipped();
@@ -92,7 +92,7 @@ internal sealed class Renderer(App app, string output, string language, string[]
     public async Task RunAsync()
     {
         Loc.Use(language); _english = Loc.IsEnglish;
-        var folder = Path.Combine(Path.GetTempPath(), "TwelveIsland.ReadmeMedia." + Guid.NewGuid().ToString("N"));
+        var folder = Path.Combine(Path.GetTempPath(), "OrangeIsland.ReadmeMedia." + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         var offline = new HttpClient(new Offline());
         _settings = BuildSettings();
@@ -104,7 +104,7 @@ internal sealed class Renderer(App app, string output, string language, string[]
         // The panel subscribes to the lyrics as it is made; this one finds none offline and reads no Apple Music cache.
         Program.SetProperty(app, "Lyrics", new LyricsService(offline, () => [], Path.Combine(folder, "apple-music-lyrics.json")));
         // The toolbar reads the update notice on every render.
-        var backend = Type.GetType("TwelveIsland.Updates.GitHubUpdates, 12Island")!.GetMethod("Create", [typeof(string)])!.Invoke(null, [folder]);
+        var backend = Type.GetType("OrangeIsland.Updates.GitHubUpdates, OrangeIsland")!.GetMethod("Create", [typeof(string)])!.Invoke(null, [folder]);
         Program.SetProperty(app, "Updates", new AppUpdates((IAppUpdateBackend)backend!, folder));
 
         _deck = new MainWindow(app) { Opacity = 0, IsHitTestVisible = false };
@@ -462,7 +462,7 @@ internal sealed class Renderer(App app, string output, string language, string[]
     private async Task ClockStyles()
     {
         const double scale = 2;
-        var face = Type.GetType("TwelveIsland.ClockFace, 12Island")!;
+        var face = Type.GetType("OrangeIsland.ClockFace, OrangeIsland")!;
         var time = new DateTime(2026, 9, 27, 15, 25, 0);
         (ClockStyle Style, ClockColor Color, bool Alone)[] samples =
         [
@@ -508,11 +508,11 @@ internal sealed class Renderer(App app, string output, string language, string[]
     private async Task Themes()
     {
         const double scale = 2;
-        var folder = Path.Combine(Path.GetTempPath(), "TwelveIsland.ReadmeThemes." + Guid.NewGuid().ToString("N"));
+        var folder = Path.Combine(Path.GetTempPath(), "OrangeIsland.ReadmeThemes." + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
         File.WriteAllText(Path.Combine(folder, "warm-paper.json"), CustomTheme);
         string[] ids = [PanelThemes.Dark, PanelThemes.Light, "night-owl", "dracula", PanelThemes.Demo, "warm-paper"];
-        var theme = Type.GetType("TwelveIsland.PanelTheme, 12Island")!;
+        var theme = Type.GetType("OrangeIsland.PanelTheme, OrangeIsland")!;
         theme.GetField("_loaded", Program.Any)!.SetValue(null, true);
         theme.GetProperty("UserThemes", Program.Any)!.SetValue(null, PanelThemes.LoadFolder(folder));
         var use = theme.GetMethod("Use", Program.Any)!;
@@ -610,8 +610,8 @@ internal sealed class Renderer(App app, string output, string language, string[]
                 new("VideoEncode", 0), new("Compute", Math.Max(0, .03 + .02 * Jump(tick, 43)))]
         };
         // The icons are the only thing taken from this computer: each app's icon is read from its executable where it is
-        // installed, as TwelveIsland does. An app that is not installed shows its initial instead.
-        var prepare = Type.GetType("TwelveIsland.ProcessIcons, 12Island")!.GetMethod("Prepare", Program.Any)!;
+        // installed, as OrangeIsland does. An app that is not installed shows its initial instead.
+        var prepare = Type.GetType("OrangeIsland.ProcessIcons, OrangeIsland")!.GetMethod("Prepare", Program.Any)!;
         // Each app's processor use over five seconds, repeated. The figures change every second, and once in the clip (at tick 2)
         // Chrome overtakes Visual Studio Code, so the list reorders once. Tick 0 is the still image.
         ProcessSample App(int pid, string name, string exe, double[] cpuPercents, double memoryMb, int members = 1, params string[] places)

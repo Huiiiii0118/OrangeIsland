@@ -1,7 +1,7 @@
 ﻿# Installs a test copy with the real installer script into a folder whose name has Chinese characters and a space,
 # updates it through AppUpdates (the new installer removes the old version first), then uninstalls it twice to cover
 # keeping and deleting user data. A unique AppId, name, data folder, mutex and startup value keep the test away from
-# the user's TwelveIsland installation and settings.
+# the user's OrangeIsland installation and settings.
 # This file contains Chinese text and must stay UTF-8 with BOM for Windows PowerShell 5.1.
 [CmdletBinding()]
 param()
@@ -13,11 +13,11 @@ $installRoot = Join-Path $testRoot '安装 目录'
 $dataPath = Join-Path $testRoot 'user-data'
 $appId = [Guid]::NewGuid().ToString().ToUpperInvariant()
 # No spaces: the update manifest accepts only plain installer file names.
-$appName = "TwelveIsland-UpdateTest-$($testId.Substring(0, 8))"
+$appName = "OrangeIsland-UpdateTest-$($testId.Substring(0, 8))"
 # The installer appends the app folder name to the chosen folder; the test passes the parent with a trailing \.
 $installPath = Join-Path $installRoot $appName
-$mutexPrefix = "TwelveIsland.UpdateTest.$testId."
-$runValue = "TwelveIsland.UpdateTest.$testId"
+$mutexPrefix = "OrangeIsland.UpdateTest.$testId."
+$runValue = "OrangeIsland.UpdateTest.$testId"
 $uninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{$appId}_is1"
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $startMenuShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) "$appName.lnk"
@@ -39,7 +39,7 @@ function Uninstall([string[]]$extra) {
 }
 function InstalledAt { [IO.Path]::GetFullPath((Get-ItemProperty $uninstallKey).InstallLocation).TrimEnd('\') -eq $installPath }
 # The test folder sits under the repository. Like the installer, a folder in Program Files or the profile keeps its inherited
-# rights; anywhere else, such as D:\TwelveIsland, it must stop inheriting rights such as Authenticated Users' "modify" from the
+# rights; anywhere else, such as D:\OrangeIsland, it must stop inheriting rights such as Authenticated Users' "modify" from the
 # drive's root.
 $ownRights = !(@($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:USERPROFILE, $env:LOCALAPPDATA) |
     Where-Object { $_ -and "$installPath\".StartsWith("$($_.TrimEnd('\'))\", [StringComparison]::OrdinalIgnoreCase) })
@@ -54,7 +54,7 @@ function PrivateRights {
     $full = [int][Security.AccessControl.FileSystemRights]::FullControl
     $folder = Get-Acl -LiteralPath $installPath
     $rules = @($folder.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
-    $program = @((Get-Acl -LiteralPath (Join-Path $installPath 'TwelveIsland.UpdateHarness.exe')).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+    $program = @((Get-Acl -LiteralPath (Join-Path $installPath 'OrangeIsland.UpdateHarness.exe')).GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
     $folder.AreAccessRulesProtected -and !($rules + $program | Where-Object { $_.IdentityReference.Value -eq 'S-1-5-11' }) `
         -and ($rules | Where-Object { $_.IdentityReference.Value -eq $me -and ([int]$_.FileSystemRights -band $full) -eq $full }) `
         -and !($rules | Where-Object { $_.IdentityReference.Value -eq 'S-1-5-32-545' -and ([int]$_.FileSystemRights -band [int][Security.AccessControl.FileSystemRights]::Write) })
@@ -69,13 +69,13 @@ try {
     foreach ($version in @('0.1.0', '0.1.1')) {
         $publish = Join-Path $testRoot "publish-$version"
         $output = Join-Path $testRoot $(if ($version -eq '0.1.0') { 'initial' } else { 'feed' })
-        dotnet publish tests/TwelveIsland.UpdateHarness -c Release -r win-x64 --self-contained false -p:Version=$version -o $publish
+        dotnet publish tests/OrangeIsland.UpdateHarness -c Release -r win-x64 --self-contained false -p:Version=$version -o $publish
         if ($LASTEXITCODE -ne 0) { throw 'Test publish failed.' }
         # A file that only the old version ships shows whether the old version was removed before the update.
         if ($version -eq '0.1.0') { Set-Content -LiteralPath (Join-Path $publish 'only-in-0.1.0.txt') -Value 'old' }
         & $iscc -q -nc "-dAppVersion=$version" "-dSourceDir=$publish" "-o$output" "-dAppId=$appId" "-dAppName=$appName" `
-            '-dMainExe=TwelveIsland.UpdateHarness.exe' "-dDataDir=$dataPath" "-dMutexPrefix=$mutexPrefix" "-dRunValue=$runValue" `
-            "-dAppUserModelId=TwelveIsland.UpdateTest.$testId" installer/TwelveIsland.iss
+            '-dMainExe=OrangeIsland.UpdateHarness.exe' "-dDataDir=$dataPath" "-dMutexPrefix=$mutexPrefix" "-dRunValue=$runValue" `
+            "-dAppUserModelId=OrangeIsland.UpdateTest.$testId" installer/OrangeIsland.iss
         if ($LASTEXITCODE -ne 0) { throw 'Test installer compilation failed.' }
         $setups[$version] = Join-Path $output "$appName-$version-Setup.exe"
     }
@@ -97,8 +97,8 @@ try {
     [IO.File]::Delete($desktopShortcut)
     # A fresh account, such as a CI runner, may have no Run key yet; the app creates it the same way.
     if (!(Test-Path $runKey)) { New-Item -Path $runKey | Out-Null }
-    New-ItemProperty -Path $runKey -Name $runValue -Value "`"$installPath\TwelveIsland.UpdateHarness.exe`"" -Force | Out-Null
-    $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $installPath 'TwelveIsland.UpdateHarness.exe'))
+    New-ItemProperty -Path $runKey -Name $runValue -Value "`"$installPath\OrangeIsland.UpdateHarness.exe`"" -Force | Out-Null
+    $start = [Diagnostics.ProcessStartInfo]::new((Join-Path $installPath 'OrangeIsland.UpdateHarness.exe'))
     $start.UseShellExecute = $false
     $start.Environment['BRIMDECK_UPDATE_TEST_ROOT'] = $testRoot
     $start.Environment['BRIMDECK_UPDATE_TEST_APPID'] = "{$appId}"
@@ -121,7 +121,7 @@ try {
     Assert (ExpectedRights) "after an in-app update without administrator rights, $rightsCase"
 
     Uninstall @()
-    Assert (!(Test-Path -LiteralPath (Join-Path $installPath 'TwelveIsland.UpdateHarness.exe'))) 'uninstall removes the program files'
+    Assert (!(Test-Path -LiteralPath (Join-Path $installPath 'OrangeIsland.UpdateHarness.exe'))) 'uninstall removes the program files'
     Assert (!(Test-Path -LiteralPath $startMenuShortcut)) 'uninstall removes the shortcut'
     Assert (Test-Path -LiteralPath (Join-Path $dataPath 'settings.json')) 'a silent uninstall keeps settings and data'
     Assert ($null -eq (Get-ItemProperty -Path $runKey -Name $runValue -ErrorAction SilentlyContinue)) 'uninstall removes the startup entry that pointed to the program'

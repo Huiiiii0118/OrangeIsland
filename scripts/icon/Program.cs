@@ -4,12 +4,12 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
-// 12 island application icon: a near-black squircle with a white capsule across its middle — the island — carrying "12" in
-// black at its left and a coral status dot at its right. One shape, two tones, no second outline, as a Mac app's icon is set.
-// Composition on a 256-unit canvas: squircle 0–256 with a 58 corner radius (macOS's ratio), the capsule 152 × 60 centred,
-// the numeral at 82 % of the capsule's height, the dot 14 across on the capsule's right shoulder.
-// Sizes of 24 and below drop the numeral and enlarge the capsule, which would otherwise be a hairline at tray size; 16 and
-// below drop the dot as well. The numeral is drawn as a geometry so its ink, not its line box, is what gets centred.
+// Orange island application icon: a near-black squircle with an orange capsule across its middle — the island — carrying
+// a dark "O" at its left and a warm white status dot at its right. One shape, two tones, no second outline, as a Mac app's
+// icon is set. Composition on a 256-unit canvas: squircle 0–256 with a 58 corner radius (macOS's ratio), the capsule
+// 152 × 60 centred, the letter at 82 % of the capsule's height, the dot 14 across on the capsule's right shoulder.
+// Sizes of 24 and below drop the letter and enlarge the capsule, which would otherwise be a hairline at tray size; 16 and
+// below drop the dot as well. The letter is drawn as a geometry so its ink, not its line box, is what gets centred.
 // Usage: dotnet run --project scripts/icon -c Release -- <output.ico> <preview.png>
 internal static class Program
 {
@@ -17,13 +17,14 @@ internal static class Program
     // task bar 24·scale (24, 30, 36, 42, 48, 54, 60, 72), notification area 16·scale (16, 20, 24, 28, 32, 36, 40, 48),
     // Explorer and desktop 32·scale (32, 40, 48, 56, 64, 72, 80, 96), plus 128 and 256 for large views.
     private static readonly int[] Sizes = [16, 20, 24, 28, 30, 32, 36, 40, 42, 48, 54, 56, 60, 64, 72, 80, 96, 128, 256];
-    private static readonly Color Ink = Color.FromRgb(0x0A, 0x0B, 0x0E), Paper = Color.FromRgb(0xF5, 0xF6, 0xF8);
-    private static readonly Color Dot = Color.FromRgb(0xE5, 0xA3, 0x85);
+    private static readonly Color Ink = Color.FromRgb(0x2A, 0x13, 0x05);
+    private static readonly Color OrangeLight = Color.FromRgb(0xFF, 0xBA, 0x57), OrangeDark = Color.FromRgb(0xEF, 0x77, 0x1C);
+    private static readonly Color Dot = Color.FromRgb(0xFF, 0xF5, 0xE7);
 
     [STAThread]
     private static void Main(string[] args)
     {
-        string icoPath = args.Length > 0 ? args[0] : "12Island.ico";
+        string icoPath = args.Length > 0 ? args[0] : "OrangeIsland.ico";
         string previewPath = args.Length > 1 ? args[1] : "icon-preview.png";
         var frames = Sizes.Select(size => (Size: size, Png: Encode(Render(size)))).ToList();
         WriteIco(icoPath, frames);
@@ -48,15 +49,15 @@ internal static class Program
             if (size >= 48)
                 dc.DrawRoundedRectangle(null, new Pen(new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF)), 2), new Rect(1, 1, 254, 254), 57, 57);
 
-            var face = new LinearGradientBrush(Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0xE4, 0xE6, 0xEB), 90);
+            var face = new LinearGradientBrush(OrangeLight, OrangeDark, 90);
             dc.DrawRoundedRectangle(face, null, capsule, height / 2, height / 2);
 
-            // The numeral sits left of centre so the dot on the right shoulder balances it; at tray sizes the numeral is
+            // The letter sits left of centre so the dot on the right shoulder balances it; at tray sizes the letter is
             // under a pixel high, so the dot alone carries the shape.
             if (small) dc.DrawEllipse(new SolidColorBrush(Dot), null, new Point(capsule.Right - 30, 128), 12, 12);
             else
             {
-                dc.DrawGeometry(new SolidColorBrush(Ink), null, Numeral(height * .82, capsule.Left + 64, 128));
+                dc.DrawGeometry(new SolidColorBrush(Ink), null, Letter(height * .82, capsule.Left + 64, 128));
                 dc.DrawEllipse(new SolidColorBrush(Dot), null, new Point(capsule.Right - 28, 128), 14, 14);
             }
             dc.Pop();
@@ -67,17 +68,16 @@ internal static class Program
         return bitmap;
     }
 
-    // "12" as a geometry centred on its ink: a text line box carries the ascender and descender, which would sit the digits
+    // "O" as a geometry centred on its ink: a text line box carries the ascender and descender, which would sit the glyph
     // low in a capsule this shallow.
-    private static Geometry Numeral(double em, double centerX, double centerY)
+    private static Geometry Letter(double em, double centerX, double centerY)
     {
-        var text = new FormattedText("12", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+        var text = new FormattedText("O", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
             new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), em,
             Brushes.Black, 1.0);
         var geometry = text.BuildGeometry(new Point(0, 0));
         var ink = geometry.Bounds;
-        // Slightly tighter than the font's default side bearing, so the pair reads as one mark at 32 px.
-        var squeeze = new ScaleTransform(.96, 1, ink.X + ink.Width / 2, 0);
+        var squeeze = new ScaleTransform(1, 1, ink.X + ink.Width / 2, 0);
         geometry.Transform = new TransformGroup
         {
             Children = { squeeze, new TranslateTransform(centerX - (ink.X + ink.Width / 2), centerY - (ink.Y + ink.Height / 2)) },

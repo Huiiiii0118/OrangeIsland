@@ -1,6 +1,6 @@
-# 12 island — a Dynamic Island for Windows
+# Orange island — a Dynamic Island for Windows
 
-12 island lives at the top of the screen: a notch or a capsule at rest, a panel when you point at it, holding notifications,
+Orange island lives at the top of the screen: a notch or a capsule at rest, a panel when you point at it, holding notifications,
 music control, system readings, clipboard history and file conversion in one place.
 
 ## Features
@@ -24,27 +24,27 @@ music control, system readings, clipboard history and file conversion in one pla
 ## Running
 
 - **Windows**: Windows 10 (build 19041 or newer) and Windows 11, x64.
-- **No installation and no dependencies**: the released `12Island.exe` is a single self-contained file — the .NET runtime, the
+- **No installation and no dependencies**: the released `OrangeIsland.exe` is a single self-contained file — the .NET runtime, the
   WPF native libraries and FFmpeg are all inside it. Put it anywhere and run it.
-- Data lives in `%LOCALAPPDATA%\12Island`; copy that folder to keep your settings and history on another machine.
+- Data lives in `%LOCALAPPDATA%\OrangeIsland`; copy that folder to keep your settings and history on another machine.
 
 ## Notes
 
 - **Notifications**: what is watched is the flashing of a taskbar or dock icon — the shell announces every flash to programs that
-  register a shell hook — so the taskbar, Winstep Nexus, RocketDock and the like are all covered. 12 island reads no chat
+  register a shell hook — so the taskbar, Winstep Nexus, RocketDock and the like are all covered. Orange island reads no chat
   history and uploads nothing.
 - **Mail**: fill in the address and the app password (generated in the mailbox's settings, not the login password) under
   "Settings › Notifications"; standard IMAP servers such as QQ Mail, 163, Gmail and Outlook work.
 - **Temperatures and power** need an outside sensor source (HWiNFO's shared memory or LibreHardwareMonitor's web service);
   without one the matching readings hide themselves.
-- **Conversion**: drop files onto the convert page, or right-click them in Explorer and choose "Convert with 12 island".
+- **Conversion**: drop files onto the convert page, or right-click them in Explorer and choose "Convert with Orange island".
 
 ## Building
 
 Requires the .NET 10 SDK (x64):
 
 ```
-dotnet publish src/12Island/12Island.csproj -c Release -r win-x64 --self-contained true ^
+dotnet publish src/OrangeIsland/OrangeIsland.csproj -c Release -r win-x64 --self-contained true ^
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
 ```
 
@@ -55,7 +55,7 @@ dotnet publish src/12Island/12Island.csproj -c Release -r win-x64 --self-contain
 ## Releasing
 
 1. Create a GitHub release with the tag `vX.Y.Z` and the notes from `releases/X.Y.Z.md`;
-2. upload `12Island-X.Y.Z-windows-x64.exe` — the in-app updater recognises a new version by that asset name.
+2. upload `OrangeIsland-X.Y.Z-windows-x64.exe` — the in-app updater recognises a new version by that asset name.
 
 ## License
 
