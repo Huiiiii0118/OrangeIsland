@@ -159,7 +159,7 @@ public sealed partial class SettingsWindow : Window
         outer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(190) }); outer.ColumnDefinitions.Add(new ColumnDefinition());
         var sidebar = new Grid { Background = UI.Brush(Sidebar) };
         sidebar.RowDefinitions.Add(new RowDefinition { Height = new GridLength(100) }); sidebar.RowDefinitions.Add(new RowDefinition());
-        sidebar.Children.Add(Brand(24, new Thickness(24, 0, 22, 0)));
+        sidebar.Children.Add(Brand(24, new Thickness(20, 0, 12, 0), 158));
         // The list of pages scrolls once it is taller than the window, so the last pages (About) stay reachable in a short window.
         // Like the page, it always keeps the scroll bar's 16 DIP column, here in place of its right margin, so the buttons and the
         // selected one's background keep their width when the bar appears. The scroll area clips at its edges, so the list keeps a
@@ -195,7 +195,8 @@ public sealed partial class SettingsWindow : Window
     // The wordmark alone: no mark, no rule, one colour, as a Mac app's name is set. The sidebar's brand and the About page's
     // heading are the same thing at two sizes.
     // The mark and the name together, as a Mac app's About box sets them: the icon, then the name in two weights.
-    private StackPanel Brand(double size, Thickness margin)
+    // The sidebar is a fixed 190 DIP wide, so a longer name is scaled down to fit instead of being clipped.
+    private UIElement Brand(double size, Thickness margin, double maxWidth = double.NaN)
     {
         var brand = new StackPanel { Margin = margin, Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
         brand.Children.Add(new Image
@@ -204,19 +205,20 @@ public sealed partial class SettingsWindow : Window
             Margin = new Thickness(0, 0, Math.Round(size * .4), 0), VerticalAlignment = VerticalAlignment.Center,
         });
         brand.Children.Add(Wordmark(size));
-        return brand;
+        if (double.IsNaN(maxWidth)) return brand;
+        return new Viewbox { Child = brand, MaxWidth = maxWidth, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly,
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
     }
-    // "12" set heavier than "island", both in the text colour: the contrast carries the name, not a second colour.
+    // "Orange" set heavier than "island", both in the text colour: the contrast carries the name, not a second colour.
     private TextBlock Wordmark(double size)
     {
         var name = new TextBlock { FontFamily = new FontFamily("Segoe UI"), FontSize = size, Foreground = UI.Brush(TextPrimary), VerticalAlignment = VerticalAlignment.Center };
-        name.Inlines.Add(new Run("12") { FontWeight = FontWeights.SemiBold });
-        // A thin space carries the gap the name needs, so the two words read as one mark.
-        name.Inlines.Add(new Run("\u2009island") { FontWeight = FontWeights.Light });
+        name.Inlines.Add(new Run("Orange") { FontWeight = FontWeights.SemiBold });
+        name.Inlines.Add(new Run(" island") { FontWeight = FontWeights.Light });
         AutomationProperties.SetName(name, "Orange island"); return name;
     }
-    // The icon's mark at any size: the dark squircle, the white capsule and the coral dot. The capsule takes the tray-size
-    // proportions (see scripts/icon), since these marks are never wider than about 40 px and the numeral would be under a pixel.
+    // The icon's mark at any size, matching Assets/OrangeIsland.ico: a dark squircle, an orange capsule with a dark "O"
+    // and a warm white status dot. Drawn as vectors so the sidebar and the About page share one scalable mark.
     private static readonly ImageSource Mark = BuildMark();
     private static ImageSource BuildMark()
     {
@@ -224,11 +226,26 @@ public sealed partial class SettingsWindow : Window
         using (var dc = drawing.Open())
         {
             dc.DrawRoundedRectangle(new LinearGradientBrush(Color.FromRgb(0x1E, 0x20, 0x26), Color.FromRgb(0x07, 0x08, 0x0B), 90), null, new Rect(0, 0, 256, 256), 58, 58);
-            dc.DrawRoundedRectangle(new LinearGradientBrush(Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0xE4, 0xE6, 0xEB), 90), null, new Rect(38, 82, 180, 92), 46, 46);
-            dc.DrawEllipse(new SolidColorBrush(Color.FromRgb(0xE5, 0xA3, 0x85)), null, new Point(188, 128), 12, 12);
+            var capsule = new Rect(52, 98, 152, 60);
+            dc.DrawRoundedRectangle(new LinearGradientBrush(Color.FromRgb(0xFF, 0xBA, 0x57), Color.FromRgb(0xEF, 0x77, 0x1C), 90), null, capsule, 30, 30);
+            dc.DrawGeometry(new SolidColorBrush(Color.FromRgb(0x2A, 0x13, 0x05)), null, Letter(60 * .82, capsule.Left + 64, 128));
+            dc.DrawEllipse(new SolidColorBrush(Color.FromRgb(0xFF, 0xF5, 0xE7)), null, new Point(capsule.Right - 28, 128), 14, 14);
         }
         drawing.Freeze();
         var image = new DrawingImage(drawing); image.Freeze(); return image;
+    }
+
+    // "O" centred on its ink, as in scripts/icon: a text line box would sit the glyph low in a capsule this shallow.
+    private static Geometry Letter(double em, double centerX, double centerY)
+    {
+        var text = new FormattedText("O", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), em,
+            Brushes.Black, 1.0);
+        var geometry = text.BuildGeometry(new Point(0, 0));
+        var ink = geometry.Bounds;
+        geometry.Transform = new TranslateTransform(centerX - (ink.X + ink.Width / 2), centerY - (ink.Y + ink.Height / 2));
+        geometry.Freeze();
+        return geometry;
     }
     private TextBlock TextLine(string text, double size = 13, string color = "#F1F1F4", FontWeight? weight = null)
     {

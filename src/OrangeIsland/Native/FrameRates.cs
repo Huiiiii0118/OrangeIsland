@@ -8,10 +8,11 @@ namespace OrangeIsland.Native;
 
 // The frame rate of the program in front, for the collapsed row and the system monitor page: one figure for every panel, with the
 // program's name. The frames each program presents are read from Windows' event tracing, as PresentMon reads them (GameTechDev/
-// PresentMon, MIT License): the DXGI runtime's Present start (DirectX 10 to 12, event 42), the D3D9 runtime's (DirectX 9 and WPF,
-// event 1), and the graphics kernel's present history record (event 171), which also covers OpenGL and Vulkan. The runtimes' are
-// counted by swap chain (the event's first field), and a DXGI present with DXGI_PRESENT_TEST (flag 1, which only asks whether the
-// window shows) is not counted. A program's figure is its busiest swap chain or its kernel count, whichever is larger: a program
+// PresentMon, MIT License): the DXGI runtime's Present start (DirectX 10 to 12, event 42 on older Windows and 43 on current
+// ones), the D3D9 runtime's (DirectX 9 and WPF, event 1), and the graphics kernel's present history record (event 171), which
+// also covers OpenGL and Vulkan. Event 43 carries only four bytes, with no swap-chain pointer, so those presents are counted
+// by process. Older runtime events are counted by swap chain (the event's first field), and a DXGI present with
+// DXGI_PRESENT_TEST (flag 1, which only asks whether the window shows) is not counted. A program's figure is its busiest swap chain or its kernel count, whichever is larger: a program
 // with two windows is not counted twice, nor a frame counted by both the runtime and the kernel. These are the frames a program
 // submits, as Steam's and other games' counters show them: one that does not wait for the display (sync interval 0, as Chromium
 // and Electron present; Claude submitted 101 to 115 frames a second on a 60 Hz display while it redrew) submits more frames than the
@@ -175,9 +176,12 @@ internal sealed class FrameRates : IDisposable
         // Which process actually presented the frames. Many games (Chinese MMOs in particular) start from a launcher whose
         // window stays in front while a differently named executable owns the swap chain; an anti-cheat bootstrapper or a
         // helper process can do the same. Only naming the window's own executable, or only its same-named descendants,
-        // left those games at 0. A related process is a descendant of any name, a sibling under the same parent, or another
-        // executable in the same folder; Windows and shell hosts are never relatives. The busiest one wins, so a launcher
-        // animating at 5 fps cannot hide a game drawing at 60.
+        // left those games at 0. A relative is another instance of the same executable, any descendant of the window's
+        // process, or a sibling from the same non-shell launcher that either draws through WebView2 or lives in the same
+        // folder. Anything else presenting elsewhere on the machine is NOT a relative: explorer starts nearly every
+        // desktop program, so an unrestricted sibling test gives any window the busiest program's frame rate, and an
+        // unrestricted WebView2 test does the same for every machine with a WebView2 app running. The busiest relative
+        // wins, so a launcher animating at 5 fps cannot hide a game drawing at 60.
         (long Frames, int Pid) Family(int pid)
         {
             if (pid == 0) return (0, 0);
@@ -188,9 +192,13 @@ internal sealed class FrameRates : IDisposable
             foreach (var (process, count) in busiest)
             {
                 if (count <= frames || process == pid) continue;
-                if (!processes.TryGetValue(process, out var child) || Host(child.File)) continue;
-                if (Same(child.File, self.File) || Same(child.File, "msedgewebview2.exe")
-                    || Descends(process, pid, processes) || Sibling(process, pid, processes) || SameFolder(child.File, self.File))
+                if (!processes.TryGetValue(process, out var child) || Host(process, child.File)) continue;
+                bool descendant = Descends(process, pid, processes);
+                bool sibling = Sibling(process, pid, processes) && LauncherParent(process, processes);
+                bool sameFolder = sibling && Folder(pid) is { } here
+                    && string.Equals(here, Folder(process), StringComparison.OrdinalIgnoreCase);
+                if (Same(child.File, self.File) || descendant
+                    || (sibling && (Same(child.File, "msedgewebview2.exe") || sameFolder)))
                 { frames = count; drawn = process; }
             }
             return (frames, drawn);
@@ -224,23 +232,26 @@ internal sealed class FrameRates : IDisposable
         "shellexperiencehost.exe", "applicationframehost.exe", "systemsettings.exe", "taskmgr.exe", "cmd.exe",
         "powershell.exe", "openwith.exe", "dllhost.exe", "wmiprvse.exe", "spoolsv.exe", "ctfmon.exe", "textinputhost.exe"
     };
-    private static bool Host(string file)
+    // ProcessSnapshot carries only the executable's file name, so the folder needs the full image path (cached by Describe).
+    private bool Host(int pid, string file)
     {
         if (Hosts.Contains(Path.GetFileName(file))) return true;
-        var folder = Path.GetDirectoryName(file);
+        var folder = Folder(pid);
         var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-        return folder is { Length: > 0 } && windows.Length > 0 && folder.StartsWith(windows, StringComparison.OrdinalIgnoreCase);
+        return folder is not null && windows.Length > 0 && folder.StartsWith(windows, StringComparison.OrdinalIgnoreCase);
+    }
+    private string? Folder(int pid)
+    {
+        var folder = Path.GetDirectoryName(Describe(pid).Path ?? "");
+        return folder is { Length: > 0 } ? folder : null;
     }
     private static bool Sibling(int a, int b, Dictionary<int, (int Parent, string File)> processes) =>
         a != b && processes.TryGetValue(a, out var one) && processes.TryGetValue(b, out var two)
         && one.Parent != 0 && one.Parent == two.Parent;
-    private static bool SameFolder(string a, string b)
-    {
-        var one = Path.GetDirectoryName(a);
-        if (one is not { Length: > 0 } || !string.Equals(one, Path.GetDirectoryName(b), StringComparison.OrdinalIgnoreCase)) return false;
-        var windows = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-        return windows.Length == 0 || !one.StartsWith(windows, StringComparison.OrdinalIgnoreCase);
-    }
+    // A shared parent only means something when it is a real launcher, not the shell that started every desktop program.
+    private static bool LauncherParent(int a, Dictionary<int, (int Parent, string File)> processes) =>
+        processes.TryGetValue(a, out var one) && processes.TryGetValue(one.Parent, out var parent)
+        && !Hosts.Contains(Path.GetFileName(parent.File));
 
     // The desktop's own frames, with the desktop or taskbar in front (explorer, explorerPid): a live wallpaper's program if one draws
     // the desktop, named and with its icon, else the desktop itself. On the display under the window in front, for the refresh rate.
@@ -397,7 +408,10 @@ internal sealed class FrameRates : IDisposable
         }
         finally { Marshal.FreeHGlobal(properties); }
         Enable(DxgKrnl, 0x8000001, 0x8000001, 0xAB);
-        Enable(Dxgi, 0x8000000000000002, 0x8000000000000002, 0x2A);
+        // A DXGI present used to be event 42; current Windows builds report it as event 43 instead, with only a four-byte
+        // payload and no swap-chain pointer. Both are asked for, so either build reads frames. Their counts land in
+        // different (pid, chain) buckets and busiest takes the larger, so a build emitting both is not counted twice.
+        Enable(Dxgi, 0x8000000000000002, 0x8000000000000002, 0x2A, 0x2B);
         Enable(D3D9, 0x8000000000000002, 0x8000000000000002, 0x01);
         // EVENT_TRACE_LOGFILEW, 448 bytes on x64: LoggerName at 8, ProcessTraceMode at 28 (real time, event records, and raw
         // timestamps: the performance counter the session records, not converted to the system time),
@@ -514,7 +528,8 @@ internal sealed class FrameRates : IDisposable
 
     // EVENT_RECORD (112 bytes on x64): EventHeader.Flags at 4 (0x40: pointers in the data are 64 bits), ProcessId at 12, TimeStamp at
     // 16 (the performance counter, as the session's ClientContext asks), ProviderId at 24 (its first four bytes tell the three apart), UserDataLength at 86, UserData at 96. The data:
-    // DXGI's Present start pIDXGISwapChain then Flags, D3D9's pSwapchain then Flags.
+    // DXGI's Present start pIDXGISwapChain then Flags (event 42), D3D9's pSwapchain then Flags. Event 43 has only four
+    // bytes and no chain pointer, so it is counted in one bucket for the process.
     private void OnEvent(IntPtr record)
     {
         int pid = Marshal.ReadInt32(record, 12);
@@ -524,6 +539,7 @@ internal sealed class FrameRates : IDisposable
         IntPtr data = Marshal.ReadIntPtr(record, 96);
         long time = Marshal.ReadInt64(record, 16);
         if (provider == DxgKrnlData1) { Count(time, pid, Kernel); return; }
+        if (provider == DxgiData1 && (ushort)Marshal.ReadInt16(record, 40) == 0x2B) { Count(time, pid, 0); return; }
         int pointer = (Marshal.ReadInt16(record, 4) & 0x40) != 0 ? 8 : 4;
         long chain = 0;
         if (data != IntPtr.Zero && length >= pointer + 4)
