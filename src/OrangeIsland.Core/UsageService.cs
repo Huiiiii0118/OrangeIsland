@@ -129,7 +129,11 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
             foreach (var old in _claudeLimits.Where(pair => pair.Value.RetryAt(now) is null).Select(pair => pair.Key).ToList()) _claudeLimits.Remove(old);
         return _claudeLimits[key] = new();
     }
-    private static string Clock(DateTimeOffset time, DateTimeOffset now) => time.LocalDateTime.ToString(time.LocalDateTime.Date == now.LocalDateTime.Date ? "HH:mm" : "MM-dd HH:mm");
+    private static string Clock(DateTimeOffset time, DateTimeOffset now)
+    {
+        var local = time.LocalDateTime;
+        return local.ToString(local.Date == now.LocalDateTime.Date ? "HH:mm" : "MM-dd HH:mm");
+    }
     private readonly ConfiguredProviders _configured = new(secrets, http, clock);
     public Task<ProviderTestResult> TestProviderAsync(AppEntry entry, CancellationToken ct = default) => _configured.TestAsync(entry, ct);
 
@@ -598,7 +602,7 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         // The update time is when OrangeIsland read the history; the status gives the time of the newest sample in it.
         snapshot.LiveQuota = true; snapshot.QuotaTime = now;
         snapshot.Source = Loc.T("Claude 桌面版 · 本地用量记录", "Claude desktop app · local usage records");
-        var time = sample.Time.LocalDateTime.ToString(sample.Time.LocalDateTime.Date == now.LocalDateTime.Date ? "HH:mm" : "MM-dd HH:mm");
+        var time = Clock(sample.Time, now);
         snapshot.StatusLabel = Loc.T("本地记录", "Local record");
         snapshot.Status = Loc.T($"来自 Claude 桌面版，最新记录于 {time}", $"From the Claude desktop app, latest record at {time}.");
         return snapshot;
@@ -717,7 +721,7 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         snapshot.Quotas = kept.Quotas.ToList();
         if (kept.Plan.Length > 0) { snapshot.Plan = kept.Plan; snapshot.PlanSource = kept.PlanSource; }
         snapshot.LiveQuota = true; snapshot.QuotaTime = kept.Time; snapshot.Source = kept.Source;
-        var time = kept.Time.LocalDateTime.ToString(kept.Time.LocalDateTime.Date == now.LocalDateTime.Date ? "HH:mm" : "MM-dd HH:mm");
+        var time = Clock(kept.Time, now);
         var shown = kept.Local ? Loc.T($"显示 Grok Bot 桌面版 {time} 缓存的额度", $"showing the allowance the Grok Bot desktop app cached at {time}")
             : Loc.T($"显示 {time} 读取的额度", $"showing the allowance read at {time}");
         (snapshot.StatusLabel, snapshot.Status) = failure switch
@@ -751,7 +755,7 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         // The update time is when OrangeIsland read the cache; the status gives the time the desktop app took the reading.
         snapshot.LiveQuota = true; snapshot.QuotaTime = now;
         snapshot.Source = GrokBotCacheSource;
-        var time = readAt.LocalDateTime.ToString(readAt.LocalDateTime.Date == now.LocalDateTime.Date ? "HH:mm" : "MM-dd HH:mm");
+        var time = Clock(readAt, now);
         snapshot.StatusLabel = Loc.T("本地记录", "Local record");
         snapshot.Status = reading.UsedPercent is null ? Loc.T($"来自 Grok Bot 桌面版，最新记录于 {time}", $"From the Grok Bot desktop app, latest record at {time}") + PooledNote
             : Loc.T($"来自 Grok Bot 桌面版，最新记录于 {time}", $"From the Grok Bot desktop app, latest record at {time}.");
@@ -1208,7 +1212,7 @@ public sealed class UsageService(IDesktopSources desktop, DataLocations? locatio
         snapshot.Metrics = kept.Metrics.ToList();
         if (kept.Plan.Length > 0) { snapshot.Plan = kept.Plan; snapshot.PlanSource = source; }
         snapshot.LiveQuota = true; snapshot.QuotaTime = kept.Time; snapshot.Source = source;
-        var time = kept.Time.LocalDateTime.ToString(kept.Time.LocalDateTime.Date == now.LocalDateTime.Date ? "HH:mm" : "MM-dd HH:mm");
+        var time = Clock(kept.Time, now);
         var shown = Loc.T($"显示 {time} 读取的额度", $"showing the allowance read at {time}");
         (snapshot.StatusLabel, snapshot.Status) = failure switch
         {

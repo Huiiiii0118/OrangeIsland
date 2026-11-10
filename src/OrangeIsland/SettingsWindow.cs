@@ -702,8 +702,8 @@ public sealed partial class SettingsWindow : Window
                     s.NotchMonitor=defaults.NotchMonitor;s.CapsuleMonitor=defaults.CapsuleMonitor;s.NotchOrder=defaults.NotchOrder;s.CapsuleOrder=defaults.CapsuleOrder;
                     // The clock goes back to the one the panel theme suggests, as choosing the theme gives.
                     PanelThemes.ApplyClock(PanelTheme.Current,s);break;
-                case 2:s.UsagePage=false;s.MusicPage=defaults.MusicPage;s.NotifyPage=defaults.NotifyPage;s.ClipboardPage=defaults.ClipboardPage;s.ConvertPage=defaults.ConvertPage;s.DefaultPage=defaults.DefaultPage;s.RightClickSettings=defaults.RightClickSettings;s.Width=defaults.Width;s.Height=defaults.Height;s.QuickSize=null;s.MusicWidth=defaults.MusicWidth;s.MusicHeight=defaults.MusicHeight;s.ExpandHotkey=defaults.ExpandHotkey;s.ResizeHotkey=defaults.ResizeHotkey;s.MouseWheel=defaults.MouseWheel;s.ExpandAtPointer=defaults.ExpandAtPointer;
-                    s.MonitorPage=defaults.MonitorPage;s.MonitorWidth=defaults.MonitorWidth;s.MonitorHeight=defaults.MonitorHeight;s.PageOrder=defaults.PageOrder;break;
+                case 2:s.UsagePage=false;s.MusicPage=defaults.MusicPage;s.NotifyPage=defaults.NotifyPage;s.ClipboardPage=defaults.ClipboardPage;s.ConvertPage=defaults.ConvertPage;s.DefaultPage=defaults.DefaultPage;s.RightClickSettings=defaults.RightClickSettings;s.Width=defaults.Width;s.Height=defaults.Height;s.QuickSize=null;s.ClipboardWidth=defaults.ClipboardWidth;s.ClipboardHeight=defaults.ClipboardHeight;s.ExpandHotkey=defaults.ExpandHotkey;s.ResizeHotkey=defaults.ResizeHotkey;s.MouseWheel=defaults.MouseWheel;s.ExpandAtPointer=defaults.ExpandAtPointer;
+                    s.MonitorPage=defaults.MonitorPage;s.PageOrder=defaults.PageOrder;break;
                 case MonitorSettingsPage:s.MonitorPalette=defaults.MonitorPalette;s.MonitorCustomColors=defaults.MonitorCustomColors;s.CompactWarningColor=null;s.CompactCriticalColor=null;s.CompactSmoothing=defaults.CompactSmoothing;s.MonitorInterval=defaults.MonitorInterval;s.MonitorProcesses=defaults.MonitorProcesses;s.MonitorSort=defaults.MonitorSort;s.MonitorMain=defaults.MonitorMain;s.MonitorProcessView=defaults.MonitorProcessView;
                     s.CompactMonitor=defaults.CompactMonitor;s.CompactMonitorItems=defaults.CompactMonitorItems;s.CompactReadings=defaults.CompactReadings;s.NotchAutoWidth=defaults.NotchAutoWidth;s.CapsuleAutoWidth=defaults.CapsuleAutoWidth;s.MonitorTemperatures=defaults.MonitorTemperatures;s.MonitorStorage=defaults.MonitorStorage;s.MonitorPower=defaults.MonitorPower;break;
                 case MusicSettingsPage:s.EqualizerAlways=defaults.EqualizerAlways;s.EqualizerBars=defaults.EqualizerBars;s.EqualizerMode=defaults.EqualizerMode;
@@ -1150,9 +1150,12 @@ public sealed partial class SettingsWindow : Window
         var current = TextLine(_app.Updates.CurrentVersion,12,TextSecondary); current.VerticalAlignment = VerticalAlignment.Center; version.Children.Add(current);
         var notes = ActionButton(Loc.T("更新内容", "What's new"), ShowReleaseNotes); notes.Style = (Style)FindResource("SettingsLink"); notes.Margin = new Thickness(14, 0, 0, 0);
         version.Children.Add(notes);
+        var notices = ActionButton(Loc.T("查看声明", "View notices"), ShowThirdPartyNotices); notices.Style = (Style)FindResource("SettingsLink");
         Group(Row(Loc.T("作者", "Author"), TextLine("12", 12, TextSecondary)),
             Row(Loc.T("当前版本", "Current version"),version),
             Row(Loc.T("许可证", "License"), Link("MIT License", App.RepoUrl + "/blob/main/LICENSE")),
+            Row(Loc.T("第三方声明", "Third-party notices"), notices,
+                help: () => Loc.T("程序随附的 FFmpeg、Jint 等开源组件的许可条款，已内置在程序中，无需另附文件。", "Licence terms for the open-source components bundled in the app, such as FFmpeg and Jint. Built in — no separate file needed.")),
             Row(Loc.T("项目主页", "Project"), Link($"{App.RepoOwner}/{App.RepoName}", App.RepoUrl)));
     }
 

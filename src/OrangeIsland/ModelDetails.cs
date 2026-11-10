@@ -256,8 +256,13 @@ public partial class MainWindow
     private static string TokenBreakdown(IEnumerable<TokenEntry> source)
     {
         var entries = source.ToList();
-        return Loc.T($"输入 {entries.Sum(t => t.Input):N0}\n缓存写入 {entries.Sum(t => t.CacheWrite + t.CacheWriteHour):N0}\n缓存读取 {entries.Sum(t => t.CacheRead):N0}\n输出 {entries.Sum(t => t.Output):N0}\nToken 合计 {entries.Sum(t => t.Total):N0}",
-            $"Input {entries.Sum(t => t.Input):N0}\nCache write {entries.Sum(t => t.CacheWrite + t.CacheWriteHour):N0}\nCache read {entries.Sum(t => t.CacheRead):N0}\nOutput {entries.Sum(t => t.Output):N0}\nTotal tokens {entries.Sum(t => t.Total):N0}");
+        var input = entries.Sum(t => t.Input);
+        var cacheWrite = entries.Sum(t => t.CacheWrite + t.CacheWriteHour);
+        var cacheRead = entries.Sum(t => t.CacheRead);
+        var output = entries.Sum(t => t.Output);
+        var total = entries.Sum(t => t.Total);
+        return Loc.T($"输入 {input:N0}\n缓存写入 {cacheWrite:N0}\n缓存读取 {cacheRead:N0}\n输出 {output:N0}\nToken 合计 {total:N0}",
+            $"Input {input:N0}\nCache write {cacheWrite:N0}\nCache read {cacheRead:N0}\nOutput {output:N0}\nTotal tokens {total:N0}");
     }
 
     // Every record in a row shares one model name and application, so the first record finds the row's prices.

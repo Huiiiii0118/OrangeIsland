@@ -322,7 +322,8 @@ public sealed class ConfiguredProviders : IDisposable
                     if (result.Source.Length > 0) snapshot.Source = result.Source;
                     // Warnings follow the state after the separator the settings test reads back (SettingsProviders).
                     snapshot.StatusLabel = Loc.T("已连接", "Connected");
-                    snapshot.Status = result.Warnings.Count == 0 ? snapshot.StatusLabel : snapshot.StatusLabel + Loc.T("；", "; ") + string.Join(Loc.T("；", "; "), result.Warnings);
+                    var separator = Loc.T("；", "; ");
+                    snapshot.Status = result.Warnings.Count == 0 ? snapshot.StatusLabel : snapshot.StatusLabel + separator + string.Join(separator, result.Warnings);
                     _lastGood[requestKey] = Clone(snapshot);
                     if (result.Memory is { } kept) _memory[requestKey] = kept; else _memory.TryRemove(requestKey, out _);
                     _retryAt.TryRemove(requestKey, out _);

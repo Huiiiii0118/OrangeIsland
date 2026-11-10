@@ -143,9 +143,13 @@ public partial class MainWindow
     }
 
     // The page's bottom margin for a page of this height; its sides are the header's inset. The extra clearance keeps the
-    // last row of readings off the "展开 / 收起" buttons that float over the bottom-right corner.
+    // last row of readings just clear of the "展开 / 收起" buttons at the bottom-right, stopping at PinBarFloor so the
+    // readings stay close to the bottom instead of leaving a wide empty band; a short page tapers toward the inset.
     private static double MonitorBottom(double height)
-        => (height < 170 ? 12 : 16) + Math.Clamp((height - 140) / 2, 0, PanelHeader.PinBarClearance);
+    {
+        double inset = height < 170 ? 12 : 16;
+        return inset + Math.Clamp((height - 140) / 2, 0, Math.Max(0, PanelHeader.PinBarFloor - inset));
+    }
     // The step the page is built for, kept while a resize stays within MonitorLayout.Hysteresis of it.
     private MonitorLayout? _monitorLayout;
     private MonitorLayout CurrentMonitorLayout()

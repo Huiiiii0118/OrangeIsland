@@ -177,8 +177,12 @@ public static class GpuReadings
                         DedicatedTotal = adapter.DedicatedTotal > 0 ? adapter.DedicatedTotal : null, Luid = luid, Key = adapter.Key.Length > 0 ? adapter.Key : LuidText(luid),
                         LegacyKey = adapter.LegacyKey, Kind = adapter.Kind
                     });
-        samples.Sort(static (a, b) => Rank(a.Kind) != Rank(b.Kind) ? Rank(a.Kind).CompareTo(Rank(b.Kind))
-            : string.CompareOrdinal(a.Name ?? "", b.Name ?? "") is var byName and not 0 ? byName : a.Luid.CompareTo(b.Luid));
+        samples.Sort(static (a, b) =>
+        {
+            int ra = Rank(a.Kind), rb = Rank(b.Kind);
+            return ra != rb ? ra.CompareTo(rb)
+                : string.CompareOrdinal(a.Name ?? "", b.Name ?? "") is var byName and not 0 ? byName : a.Luid.CompareTo(b.Luid);
+        });
         return samples;
     }
     // Discrete adapters first, then integrated ones, then those of unknown kind.

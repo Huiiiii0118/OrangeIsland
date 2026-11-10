@@ -143,13 +143,22 @@ public partial class MainWindow
         return host;
     }
 
+    // The empty detail card, centered both ways — shown until a row is clicked, and for a notice that carries no text.
+    private FrameworkElement EmptyNoticeDetail()
+    {
+        var label = UI.Centered(Loc.T("点击右侧通知查看内容", "Click a notice to read it here"), 12, UI.Tertiary, font: UI.TextFont);
+        label.TextAlignment = TextAlignment.Center; label.TextWrapping = TextWrapping.Wrap; label.TextTrimming = TextTrimming.None;
+        label.HorizontalAlignment = HorizontalAlignment.Center;
+        return new Grid { Children = { label } };
+    }
+
     private void FillNoticeDetail()
     {
         if (_notifyDetail is not { } host) return;
         var item = _notifySelected is { } id ? (_app.Notices?.Items ?? []).FirstOrDefault(i => i.Id == id) : null;
-        if (item is null)
+        if (item is null || (item.Title.Length == 0 && item.Body.Length == 0))
         {
-            host.Child = UI.Centered(Loc.T("点击右侧通知查看内容", "Click a notice to read it here"), 12, UI.Tertiary, font: UI.TextFont);
+            host.Child = EmptyNoticeDetail();
             return;
         }
         var stack = new StackPanel();

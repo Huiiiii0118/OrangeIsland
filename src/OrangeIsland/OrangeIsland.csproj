@@ -14,7 +14,9 @@
     <!-- FFmpeg travels inside the program, so sound, video and WebP convert on a machine that never had it installed. It is
          unpacked once, on first use, into the data folder. -->
     <EmbeddedResource Include="Assets\ffmpeg\ffmpeg-win64.tgz" LogicalName="OrangeIsland.Assets.ffmpeg.tgz" />
-    <Content Include="ThirdPartyNotices.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- The third-party licence notices travel inside the executable, so a single-file release needs no second download.
+         The About page reads this resource and shows it in a scrollable window. -->
+    <EmbeddedResource Include="ThirdPartyNotices.txt" LogicalName="OrangeIsland.ThirdPartyNotices.txt" />
   </ItemGroup>
 
   <PropertyGroup>

@@ -755,7 +755,7 @@ public partial class MainWindow
                 foreach (var label in MusicLayout.FullControlLabels)
                     if ((entryWidth = EntryWidth(label)) <= layout.FullControlRoom) { entryLabel = label; break; }
             // Mute first, bar second, both at the body's left edge — the edge the cover, the bar and the elapsed time share.
-            // DeckPages.MusicMinWidth keeps this room wide enough; the mode button starts just past the bar.
+            // MusicLayout tightens the transport gap on narrow pages so the mode button still starts just past the bar.
             double volumeX = c.Mode + 10;
             double volumeRoom = Math.Floor(layout.ModeX - 12 - volumeX);
             if (_musicMute is null)
@@ -787,14 +787,22 @@ public partial class MainWindow
                 _musicVolumeKey = volumeKey;
                 _musicVolume = new MusicSeekSlider { Style = (Style)FindResource("MusicSeek"), RestHeight = c.Bar, HoverHeight = c.BarHover, BarHeight = c.Bar,
                     Accent = ((SolidColorBrush)_musicAccent).Color, TimeBubble = false, AnimationsEnabled = animate, Maximum = 1, SmallChange = .05, LargeChange = .25 };
-                // Slider handles move-to-point before instance handlers; observe that handled event too, as the seek bar does.
+                // The seek thumb is zero-sized, so Thumb.DragStarted never fires. Own the drag on the bar itself, as the
+                // seek bar does through BeginSeek: without Seeking the slider's OnMouseMove ignores every move after the
+                // first click, and neither the fill nor the system volume follows the pointer.
                 _musicVolume.AddHandler(PreviewMouseLeftButtonDownEvent, new MouseButtonEventHandler((sender, _) =>
                 {
-                    var slider = (Slider)sender;
-                    var track = slider.Template.FindName("PART_Track", slider) as System.Windows.Controls.Primitives.Track;
-                    if (Mouse.LeftButton == MouseButtonState.Pressed && track?.Thumb.IsMouseOver != true) slider.CaptureMouse();
+                    if (sender is not MusicSeekSlider bar) return;
+                    bar.Seeking = true;
+                    var track = bar.Template.FindName("PART_Track", bar) as System.Windows.Controls.Primitives.Track;
+                    if (Mouse.LeftButton == MouseButtonState.Pressed && track?.Thumb.IsMouseOver != true) bar.CaptureMouse();
                 }), true);
-                _musicVolume.AddHandler(MouseLeftButtonUpEvent, new MouseButtonEventHandler((_, _) => _musicVolume?.ReleaseMouseCapture()), true);
+                _musicVolume.AddHandler(MouseLeftButtonUpEvent, new MouseButtonEventHandler((sender, _) =>
+                {
+                    if (sender is MusicSeekSlider bar) bar.Seeking = false;
+                    _musicVolume?.ReleaseMouseCapture();
+                }), true);
+                _musicVolume.LostMouseCapture += (sender, _) => { if (sender is MusicSeekSlider bar) bar.Seeking = false; };
                 // The slider's own move-to-point and the control's drag both work through the seeking state, as they do on the seek bar.
                 _musicVolume.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler((sender, _) => { if (sender is MusicSeekSlider seeking) seeking.Seeking = true; }), true);
                 _musicVolume.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((sender, _) => { if (sender is MusicSeekSlider seeking) seeking.Seeking = false; }), true);

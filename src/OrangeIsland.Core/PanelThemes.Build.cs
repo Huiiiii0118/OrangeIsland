@@ -42,7 +42,7 @@ public static partial class PanelThemes
             if (layer.Effects is { } layerEffects) MergeEffects(effects, layerEffects);
         }
         // The dark theme sets every token, so a missing one only happens if the embedded file is broken.
-        foreach (var token in Tokens) if (!colors.ContainsKey(token.Key)) colors[token.Key] = token.Key == "surface" ? ThemeColor.Black : ThemeColor.White;
+        foreach (var token in Tokens) colors.TryAdd(token.Key, token.Key == "surface" ? ThemeColor.Black : ThemeColor.White);
         var writtenColors = new Dictionary<string, ThemeColor>(colors, StringComparer.Ordinal);
         var writtenApps = new Dictionary<string, ThemeColor>(apps, StringComparer.Ordinal);
         // The surface is drawn opaque, as a translucent one would let the desktop through behind the text. A tooltip is a window of

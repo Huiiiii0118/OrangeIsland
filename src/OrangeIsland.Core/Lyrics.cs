@@ -224,8 +224,11 @@ public sealed partial class LyricsService : IDisposable
     // Apple Music shows names in the storefront's script (李耀陽); the other providers may use another (李耀阳).
     private static string MatchText(MediaTrack track, string value) => Normalize(track.IsAppleMusic ? SimplifyAppleText(value) : value);
     private static bool Matches(MediaTrack track, string title, string artist, double seconds)
-        => MatchText(track, track.Title) == MatchText(track, title) && Regex.Split(track.Artist, @"\s*[/、,，&;；]\s*").Where(a => a.Length > 0).All(a => MatchText(track, artist).Contains(MatchText(track, a), StringComparison.Ordinal))
+    {
+        var artistText = MatchText(track, artist);
+        return MatchText(track, track.Title) == MatchText(track, title) && Regex.Split(track.Artist, @"\s*[/、,，&;；]\s*").Where(a => a.Length > 0).All(a => artistText.Contains(MatchText(track, a), StringComparison.Ordinal))
             && (track.Duration.TotalSeconds <= 0 || Math.Abs(seconds - track.Duration.TotalSeconds) <= 2);
+    }
     private async Task<Lyrics> FindNeteaseId(string id, double duration, CancellationToken token)
     {
         if (!Regex.IsMatch(id, @"\A[0-9]{1,16}\z")) return Lyrics.Empty;

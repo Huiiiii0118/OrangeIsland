@@ -45,7 +45,11 @@ public static class UpdateSchedule
     {
         var due = started + StartupDelay;
         if (lastSuccess is { } success && success + Interval > due) due = success + Interval;
-        if (failures > 0 && lastFailure is { } failure && failure + Backoff(failures) > due) due = failure + Backoff(failures);
+        if (failures > 0 && lastFailure is { } failure)
+        {
+            var backoff = Backoff(failures);
+            if (failure + backoff > due) due = failure + backoff;
+        }
         if (retryUntil is { } retry && retry > due) due = retry;
         return due;
     }

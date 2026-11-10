@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -11,6 +12,7 @@ namespace OrangeIsland;
 public sealed partial class SettingsWindow
 {
     private Window? _notesDialog;
+    private Window? _noticesDialog;
 
     internal async Task ShowReleaseNotesAsync()
     {
@@ -122,5 +124,63 @@ public sealed partial class SettingsWindow
             if (part.Length > 0) block.Inlines.Add(new System.Windows.Documents.Run(part) { FontWeight = bold ? FontWeights.SemiBold : block.FontWeight });
         }
         return block;
+    }
+
+    // The third-party licence notices are built into the executable as an embedded resource, so a release is one file.
+    // This window reads that resource and shows it as selectable, scrollable text — no external .txt to ship or open.
+    private void ShowThirdPartyNotices()
+    {
+        if (_noticesDialog is not null || !IsVisible) return;
+        string notices;
+        try
+        {
+            using var stream = typeof(SettingsWindow).Assembly.GetManifestResourceStream("OrangeIsland.ThirdPartyNotices.txt");
+            if (stream is null) throw new IOException("third-party notices resource missing");
+            using var reader = new StreamReader(stream, System.Text.Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            notices = reader.ReadToEnd();
+        }
+        catch (IOException)
+        {
+            Notice(Loc.T("第三方声明", "Third-party notices"), Loc.T("无法读取第三方声明文本。", "Could not read the third-party notices."));
+            return;
+        }
+
+        var dialog = new Window { Title = Loc.T("第三方声明", "Third-party notices"), Owner = this, Width = 620, Height = 560,
+            MinWidth = 440, MinHeight = 320, ResizeMode = ResizeMode.CanResize,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, FontFamily = UI.PanelFont,
+            Background = UI.Brush(Surface), Foreground = UI.Brush(TextPrimary) };
+        dialog.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/OrangeIsland;component/SettingsResources.xaml", UriKind.Relative) });
+        _palette.Apply(dialog.Resources); Native.SettingsChrome.Apply(dialog);
+        dialog.SourceInitialized += (_, _) => Native.SettingsChrome.SetTheme(dialog, _palette.Dark);
+        System.Windows.Media.TextOptions.SetTextFormattingMode(dialog, System.Windows.Media.TextFormattingMode.Display);
+
+        var grid = new Grid { Margin = new Thickness(26, 22, 26, 24) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var title = TextLine(Loc.T("第三方声明", "Third-party notices"), 21, TextPrimary, FontWeights.SemiBold);
+        title.Margin = new Thickness(0, 0, 0, 14); Grid.SetRow(title, 0); grid.Children.Add(title);
+
+        var text = new TextBox { Text = notices, IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap,
+            FontSize = 12, FontFamily = UI.PanelFont, BorderThickness = new Thickness(0), Padding = new Thickness(0, 0, 14, 0),
+            Background = System.Windows.Media.Brushes.Transparent, Foreground = UI.Brush(TextSecondary),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalAlignment = VerticalAlignment.Stretch };
+        AutomationProperties.SetName(text, Loc.T("第三方声明", "Third-party notices"));
+        Grid.SetRow(text, 1); grid.Children.Add(text);
+
+        var close = ActionButton(Loc.T("关闭", "Close"), dialog.Close); close.HorizontalAlignment = HorizontalAlignment.Right;
+        close.Margin = new Thickness(0, 18, 0, 0); close.IsCancel = true; Grid.SetRow(close, 2); grid.Children.Add(close); dialog.Loaded += (_, _) => close.Focus();
+        void Theme()
+        {
+            _palette.Apply(dialog.Resources); dialog.Background = UI.Brush(Surface); dialog.Foreground = UI.Brush(TextPrimary);
+            text.Foreground = UI.Brush(TextSecondary); Native.SettingsChrome.SetTheme(dialog, _palette.Dark);
+        }
+        PaletteChanged += Theme;
+        dialog.Closed += (_, _) => { PaletteChanged -= Theme; _noticesDialog = null; };
+        var frame = new Border { BorderThickness = new Thickness(1), Child = grid };
+        frame.SetResourceReference(Border.BorderBrushProperty, "SettingsBorder");
+        frame.SetResourceReference(Border.BackgroundProperty, "SettingsSurface"); dialog.Content = frame;
+        _noticesDialog = dialog; dialog.ShowDialog();
     }
 }

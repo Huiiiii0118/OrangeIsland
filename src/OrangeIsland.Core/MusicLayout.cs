@@ -46,6 +46,9 @@ public sealed record MusicLayout(MusicMetrics Metrics, double Density, double Bo
     public static string[] FullControlLabels => Loc.IsEnglish ? ["Enable full control", "Full control", "Enable…", "En…"] : ["启用完整控制", "启用完整…", "启用…", "启…"];
     // The chrome is 6 padding and a 1 border on each side. The minimum holds the shortest label at the largest (13) type.
     public const double FullControlGap = 8, FullControlChrome = 14, FullControlMinimum = 38;
+    // The volume bar sits at the transport's left edge. This is the room it keeps there, wide enough to drag and to show
+    // its percentage bubble; narrow pages tighten the transport's button spacing rather than squeeze the bar away.
+    public const double VolumeRoom = 72;
     // Height sets the density, from the smallest preset (0) to the largest panel (3). Width caps it: the narrowest
     // panel goes no further than the standard preset, and the cap reaches the largest density at the spacious width,
     // so a tall, narrow panel does not get type its title column cannot hold.
@@ -68,9 +71,10 @@ public sealed record MusicLayout(MusicMetrics Metrics, double Density, double Bo
     {
         double density = DensityFor(width, height);
         var c = MusicMetrics.At(density);
-        // The "展开 / 收起" buttons float over the bottom-right corner. Clear them with extra room below the last row,
-        // scaled to the panel's height: a short page gives less of it rather than losing its cover and lyrics.
-        double bottomMargin = c.Bottom + Math.Clamp((height - 140) / 2, 0, PanelHeader.PinBarClearance);
+        // The "展开 / 收起" buttons float over the bottom-right corner. Keep the last row just clear of them: the
+        // clearance grows with the panel's height but stops at PinBarFloor, so the page stays close to the bottom
+        // instead of leaving a wide empty band; a short page tapers toward the normal inset.
+        double bottomMargin = c.Bottom + Math.Clamp((height - 140) / 2, 0, Math.Max(0, PanelHeader.PinBarFloor - c.Bottom));
         double bodyW = width - 2 * c.Side, bodyH = height - c.Toolbar - c.Top - bottomMargin;
         // The transport glyphs occupy 3..21 of a 24-unit square; their ink ends at the body bottom.
         double controlsY = Math.Round(bodyH - c.Play * 7 / 8), inkTop = controlsY + c.Play / 8;
@@ -94,6 +98,11 @@ public sealed record MusicLayout(MusicMetrics Metrics, double Density, double Bo
         // The ceiling leaves the transport centred without swallowing the whole left edge: the mute toggle and the volume
         // bar sit there, so on a wide page the three buttons do not spread far enough to squeeze them off the row.
         double gap = Math.Round(Math.Clamp(bodyW * .14, c.Play * 1.2, c.Play * 2.2));
+        // The mute toggle and the volume bar share the body's left edge; the bar keeps VolumeRoom px before the mode
+        // button (MainWindow.Music). Narrow pages tighten the transport gap so the three buttons stay centred without
+        // squeezing the bar away. Wide pages already leave that room and keep their original, looser gap.
+        double gapCeiling = Math.Floor((bodyW - 2 * c.Skip - c.Play) / 4 - c.Mode - (VolumeRoom / 2 + 11));
+        gap = Math.Min(gap, Math.Max(c.Play + 6, gapCeiling));
         double tripletW = c.Skip * 2 + c.Play + 2 * gap;
         double tripletX = Math.Floor((bodyW - tripletW) / 2 + .5), modeX = tripletX - gap - c.Mode;
         // Netease and Apple Music without full control offer the entry at the right end of the transport row. The entry

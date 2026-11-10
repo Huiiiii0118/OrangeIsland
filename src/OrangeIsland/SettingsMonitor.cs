@@ -623,16 +623,17 @@ public sealed partial class SettingsWindow
     private void MonitorSizeControls()
     {
         var dimensions = new Grid { Margin = new Thickness(0, 8, 0, 0) }; dimensions.ColumnDefinitions.Add(new()); dimensions.ColumnDefinitions.Add(new());
-        var width = Dimension(Loc.T("宽度", "Width"), S.MonitorWidth, 440, 1200, value => Resize(s => s.MonitorWidth = value, DeckPage.Monitor)); width.Margin = new Thickness(0, 0, 20, 0); dimensions.Children.Add(width);
-        var height = Dimension(Loc.T("高度", "Height"), S.MonitorHeight, 140, 400, value => Resize(s => s.MonitorHeight = value, DeckPage.Monitor)); height.Margin = new Thickness(20, 0, 0, 0); Grid.SetColumn(height, 1); dimensions.Children.Add(height);
+        // Every shown page shares one size (DeckPages.Size): editing here edits that shared size.
+        var width = Dimension(Loc.T("宽度", "Width"), S.ClipboardWidth, 440, 1200, value => Resize(s => s.ClipboardWidth = value, DeckPage.Monitor)); width.Margin = new Thickness(0, 0, 20, 0); dimensions.Children.Add(width);
+        var height = Dimension(Loc.T("高度", "Height"), S.ClipboardHeight, 140, 400, value => Resize(s => s.ClipboardHeight = value, DeckPage.Monitor)); height.Margin = new Thickness(20, 0, 0, 0); Grid.SetColumn(height, 1); dimensions.Children.Add(height);
         Target.Children.Add(dimensions);
         var sizes = KeepPreview(new UniformGrid { Columns = 3, Width = 292 });
         foreach (var size in Enum.GetValues<PanelSize>())
         {
-            var (w, h) = MonitorSizes.For(size);
-            var choice = new RadioButton { Style = (Style)FindResource("SettingsSegment"), Content = PanelSizes.Name(size), GroupName = "MonitorSize", IsChecked = (S.MonitorWidth, S.MonitorHeight) == (w, h) };
+            var (w, h) = DeckPages.QuickSize(size);
+            var choice = new RadioButton { Style = (Style)FindResource("SettingsSegment"), Content = PanelSizes.Name(size), GroupName = "MonitorSize", IsChecked = (S.ClipboardWidth, S.ClipboardHeight) == (w, h) };
             AutomationProperties.SetName(choice, Loc.T("系统监控快捷尺寸 ", "System monitor quick size ") + PanelSizes.Name(size));
-            choice.Checked += (_, _) => { Resize(s => { s.MonitorWidth = w; s.MonitorHeight = h; }, DeckPage.Monitor); ShowPage(2); };
+            choice.Checked += (_, _) => { Resize(s => { s.ClipboardWidth = w; s.ClipboardHeight = h; }, DeckPage.Monitor); ShowPage(2); };
             sizes.Children.Add(choice);
         }
         QuickSizeRow(sizes);

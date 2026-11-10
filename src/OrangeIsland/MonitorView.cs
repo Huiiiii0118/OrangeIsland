@@ -171,9 +171,9 @@ internal sealed class MonitorView : Grid
             _list = new ProcessListView(layout, sort, processView, sortChanged, hold, Open);
             if (layout.List == ListPlacement.Side)
             {
-                // The list keeps its share of the width within its bounds; the readings keep at least 260 DIP.
-                ColumnDefinitions.Add(new ColumnDefinition { MinWidth = 260 });
-                ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+                // The list keeps its share of the width within its bounds; the readings keep at least MinimumReadings DIP.
+                ColumnDefinitions.Add(new ColumnDefinition { MinWidth = MonitorLayout.MinimumReadings });
+                ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MonitorLayout.SideGap) });
                 ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(MonitorLayout.ListShare / (1 - MonitorLayout.ListShare), GridUnitType.Star),
                     MinWidth = MonitorLayout.ListMinimum, MaxWidth = MonitorLayout.ListMaximum });
                 SetColumn(_list, 2);
