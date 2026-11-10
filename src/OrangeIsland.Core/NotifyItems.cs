@@ -20,6 +20,8 @@ public sealed class NotifyItem
     public string Program { get; set; } = "";
     public string Title { get; set; } = "";
     public string Body { get; set; } = "";
+    // A mail's sender, kept apart from the body the mail carries; older notices and every chat notice leave it empty.
+    public string Sender { get; set; } = "";
     public string App { get; set; } = "";
     public DateTimeOffset At { get; set; } = DateTimeOffset.Now;
     public bool Read { get; set; }
@@ -77,7 +79,7 @@ public sealed class NotifyStore
     // Adds a notice unless the same one is already kept. Returns the item added, or null when it was a repeat. fresh: this
     // occurrence is a new message even when it reads exactly as one already kept (a second flash of the same program says
     // "another message" and nothing more, so its text is always the same).
-    public NotifyItem? Add(NotifySource source, string program, string title, string body, string app = "", DateTimeOffset? at = null, bool fresh = false)
+    public NotifyItem? Add(NotifySource source, string program, string title, string body, string app = "", DateTimeOffset? at = null, bool fresh = false, string sender = "")
     {
         title = (title ?? "").Trim(); body = (body ?? "").Trim(); app = (app ?? "").Trim(); program = (program ?? "").Trim();
         if (title.Length == 0 && body.Length == 0) return null;
@@ -90,7 +92,7 @@ public sealed class NotifyStore
             Save(); Changed?.Invoke();
             return known;
         }
-        var item = new NotifyItem { Source = source, Program = program, Title = title, Body = body, App = app, At = at ?? DateTimeOffset.Now, Key = key };
+        var item = new NotifyItem { Source = source, Program = program, Title = title, Body = body, App = app, Sender = sender.Trim(), At = at ?? DateTimeOffset.Now, Key = key };
         _items.Insert(0, item);
         while (_items.Count > Limit) _items.RemoveAt(_items.Count - 1);
         Save(); Changed?.Invoke();

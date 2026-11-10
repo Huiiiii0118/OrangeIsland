@@ -186,8 +186,8 @@ public partial class App
         return false;
     }
 
-    // Asks the mailbox once now, for the page's "立即检查" button.
-    internal void CheckMailNow() => _notifyWatch?.PokeMail();
+    // Asks the mailbox once now, for the page's "立即检查" button. onChecked reports the outcome to the settings window.
+    internal void CheckMailNow(Action<string>? onChecked = null) => _notifyWatch?.PokeMail(onChecked);
 
     private void NoticesArrived(IReadOnlyList<NotifyArrival> arrivals)
     {
@@ -196,12 +196,12 @@ public partial class App
         foreach (var arrival in arrivals)
         {
             if (!Wanted(arrival.Source)) continue;
-            if (Notices.Add(arrival.Source, arrival.Program, arrival.Title, arrival.Body, arrival.App) is null) continue;
+            if (Notices.Add(arrival.Source, arrival.Program, arrival.Title, arrival.Body, arrival.App, sender: arrival.Sender) is null) continue;
             added = true;
         }
         if (added && Notices.LatestUnread is { } latest) NoticeArrived?.Invoke(latest);
     }
 
     // The mailbox password is written where only this user can read it back.
-    internal void SetMailPassword(string password) => MailSecret.Write(password ?? "");
+    internal bool SetMailPassword(string password) => MailSecret.Write(password ?? "");
 }

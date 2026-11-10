@@ -43,7 +43,7 @@ public partial class MainWindow : Window
     // The collapsed surface on this window's monitor, for the effective style (the line while a window rule switches to it).
     // Surface is in DIPs relative to the monitor's top-left corner. See CollapsedGeometry.
     // Until the constructor reads the monitor, the default notch on a 1920 x 1080 monitor stands in, so no early call meets null.
-    internal CollapsedShape Collapsed { get; private set; } = CollapsedGeometry.Resolve(new DeckSettings(), CompactStyle.Notch, FallbackMonitor, FallbackWork);
+    internal CollapsedShape Collapsed { get; private set; } = CollapsedGeometry.Resolve(new DeckSettings(), CompactStyle.Capsule, FallbackMonitor, FallbackWork);
     internal WindowsHost WinHost => _host;
     private static readonly DipRect FallbackMonitor = new(0, 0, 1920, 1080), FallbackWork = new(0, 0, 1920, 1032);
     // This window's monitor in DIPs (its bounds; the work area relative to the monitor's top-left corner).

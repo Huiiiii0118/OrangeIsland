@@ -26,6 +26,9 @@ public static class SettingsMigrations
         saved = VersionOf(root);
         foreach (var (version, apply) in Steps)
             if (version > saved && version <= running) apply(root);
+        // CompactStyle's zero value is Notch, so a settings file without a Style would deserialize to Notch and Normalize
+        // could not tell it from an explicit choice. A file that never named a style takes the current default, the capsule.
+        if (!root.ContainsKey(nameof(DeckSettings.Style))) root[nameof(DeckSettings.Style)] = (int)CompactStyle.Capsule;
         var settings = root.Deserialize<DeckSettings>() ?? new();
         settings.Normalize();
         return settings;

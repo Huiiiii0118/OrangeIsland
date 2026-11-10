@@ -22,17 +22,18 @@ internal static class MailSecret
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException or FormatException) { return ""; }
     }
 
-    public static void Write(string secret)
+    public static bool Write(string secret)
     {
         try
         {
-            if (_path.Length == 0) return;
-            if (secret.Length == 0) { if (File.Exists(_path)) File.Delete(_path); return; }
+            if (_path.Length == 0) return false;
+            if (secret.Length == 0) { if (File.Exists(_path)) File.Delete(_path); return true; }
             var plain = Encoding.UTF8.GetBytes(secret);
             try { File.WriteAllBytes(_path, ProtectedData.Protect(plain, null, DataProtectionScope.CurrentUser)); }
             finally { CryptographicOperations.ZeroMemory(plain); }
+            return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException) { return false; }
     }
 
     public static bool Has => _path.Length > 0 && File.Exists(_path);

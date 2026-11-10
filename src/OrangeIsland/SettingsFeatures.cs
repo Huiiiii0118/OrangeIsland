@@ -39,12 +39,18 @@ public sealed partial class SettingsWindow
             "填好地址和授权码后，程序每隔一段时间直接连到邮箱服务器查看是否有新邮件。授权码不是登录密码，在邮箱的网页设置里生成。",
             "With the address and app password filled in, the mailbox is checked directly at the chosen interval. The app password is not the login password; generate it in the mailbox's web settings."));
         Group(Row(Loc.T("邮箱地址", "Address"), MailField(S.NotifyMailUser, value => Change(s => s.NotifyMailUser = value), "name@qq.com")),
-            Row(Loc.T("授权码", "App password"), MailField(MailSecret.Read(), value => _app.SetMailPassword(value), Loc.T("邮箱设置中生成的授权码", "The password generated in the mailbox's settings"), password: true)),
+            Row(Loc.T("授权码", "App password"), MailPasswordField(_app.SetMailPassword, Loc.T("邮箱设置中生成的授权码", "The password generated in the mailbox's settings"))),
             Row(Loc.T("邮件服务器", "Mail server"), MailServerField()),
             SliderRow(Loc.T("检查间隔", "Check every"), S.NotifyMailInterval, 15, 600, 15, Loc.T("秒", "s"), value => Change(s => s.NotifyMailInterval = Math.Clamp((int)value, 15, 600))),
-            Row(Loc.T("立即检查", "Check now"), ActionButton(Loc.T("检查邮箱", "Check mail"), () => _app.CheckMailNow())));
+            Row(Loc.T("立即检查", "Check now"), ActionButton(Loc.T("检查邮箱", "Check mail"), CheckMailNow)));
         SectionTitle(Loc.T("页面尺寸", "Page size"));
         Group(Row(Loc.T("通知页大小", "Notifications page"), TextLine(Loc.T("与剪贴板页共用，在“外观 › 展开面板”中调整", "Shared with the clipboard page; set under Appearance › Expanded panel"), 12, TextSecondary)));
+    }
+
+    // The check runs on the thread pool; the outcome comes back on the UI thread and is shown as a message.
+    private void CheckMailNow()
+    {
+        _app.CheckMailNow(result => Notice(Loc.T("邮箱检查结果", "Mail check result"), result));
     }
 
     private void ClipboardSettings()
@@ -111,45 +117,73 @@ public sealed partial class SettingsWindow
     }
 
     // A text field in the settings' own style, which writes what it holds when it loses the keyboard or Enter is pressed.
-    // A password field is a hidden one instead: what is stored is never echoed, the box opens empty, and leaving it empty
-    // keeps the stored secret — only a code typed in replaces it.
-    private FrameworkElement MailField(string value, Action<string> commit, string placeholder, bool password = false)
+    private FrameworkElement MailField(string value, Action<string> commit, string placeholder)
     {
-        if (!password)
-        {
-            var field = Field(value, placeholder);
-            void Commit() => commit(field.Text.Trim());
-            field.LostFocus += (_, _) => Commit();
-            field.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
-            return field;
-        }
+        var field = Field(value, placeholder);
+        void Commit() => commit(field.Text.Trim());
+        field.LostFocus += (_, _) => Commit();
+        field.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
+        return field;
+    }
+
+    // The mailbox app password. Unlike the other fields it has an explicit Save button; the placeholder inside the box
+    // itself says whether a code is stored, so there is no extra status label to the right. The box opens empty and never
+    // echoes the saved code; leaving it empty keeps the stored one. Enter, the button, and losing focus all save, and a
+    // successful save turns the placeholder into "已保存，输入新授权码可更换".
+    private FrameworkElement MailPasswordField(System.Func<string, bool> write, string placeholder)
+    {
+        const string savedText = "已保存，输入新授权码可更换";
+
         var secret = new PasswordBox
         {
-            Style = (Style)FindResource("SettingsPassword"), Width = 260, MaxLength = 200,
+            Style = (Style)FindResource("SettingsPassword"), Width = 190, MaxLength = 200,
             ToolTip = placeholder, VerticalAlignment = VerticalAlignment.Center
         };
         AutomationProperties.SetName(secret, placeholder);
         // The hint sits over the box while it is empty; hit-test transparent, so a click reaches the box beneath it.
         var hint = new TextBlock
         {
-            Text = MailSecret.Has ? Loc.T("已保存，输入新授权码可更换", "Saved — type a new code to replace it") : placeholder,
-            Foreground = (Brush)FindResource("SettingsTextSecondary"), FontSize = 13, Margin = new Thickness(11, 0, 0, 0),
+            Text = MailSecret.Has ? Loc.T(savedText, "Saved — type a new code to replace it") : placeholder,
+            Foreground = (Brush)FindResource("SettingsTextSecondary"), FontSize = 12, Margin = new Thickness(11, 0, 0, 0),
             VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false
         };
-        var host = new Grid();
-        host.Children.Add(secret);
-        host.Children.Add(hint);
-        secret.PasswordChanged += (_, _) => hint.Visibility = secret.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var box = new Grid();
+        box.Children.Add(secret);
+        box.Children.Add(hint);
+
         void CommitSecret()
         {
             string code = secret.Password.Trim();
-            if (code.Length == 0) return;
-            commit(code);
-            secret.Clear();
+            if (code.Length == 0) { hint.Visibility = Visibility.Visible; return; }
+            bool ok;
+            try { ok = write(code); }
+            catch (Exception ex) when (ex is System.IO.IOException or System.UnauthorizedAccessException
+                or System.Security.Cryptography.CryptographicException or System.Text.Json.JsonException) { ok = false; }
+            if (!ok)
+            {
+                SaveStatus(Loc.T("授权码保存失败，请检查本机设置目录。", "The app password could not be saved. Check the local settings folder."), true);
+                return;
+            }
+            secret.Clear();                 // raises PasswordChanged, which shows the hint again
+            hint.Text = Loc.T(savedText, "Saved — type a new code to replace it");
+            hint.Visibility = Visibility.Visible;
         }
+        secret.PasswordChanged += (_, _) =>
+        {
+            bool dirty = secret.Password.Trim().Length > 0;
+            hint.Visibility = dirty ? Visibility.Collapsed : Visibility.Visible;
+        };
         secret.LostFocus += (_, _) => CommitSecret();
         secret.KeyDown += (_, e) => { if (e.Key == Key.Enter) { CommitSecret(); e.Handled = true; } };
-        return host;
+
+        var save = ActionButton(Loc.T("保存", "Save"), CommitSecret);
+        save.Style = (Style)FindResource("SettingsOutlineButton");
+        save.Margin = new Thickness(8, 0, 0, 0);
+        save.Padding = new Thickness(12, 0, 12, 0);
+        AutomationProperties.SetName(save, Loc.T("保存授权码", "Save the app password"));
+        var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        row.Children.Add(box); row.Children.Add(save);
+        return row;
     }
 
     private TextBox Field(string value, string placeholder)

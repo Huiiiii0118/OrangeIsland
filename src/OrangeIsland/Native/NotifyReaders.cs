@@ -5,8 +5,9 @@ using System.Text;
 namespace OrangeIsland.Native;
 
 // One notice as a source found it, before the panel keeps it. Program is the key the notice's program is known by
-// (NotifyPrograms), so its icon and its window can be found again.
-internal sealed record NotifyArrival(Core.NotifySource Source, string Program, string Title, string Body, string App);
+// (NotifyPrograms), so its icon and its window can be found again. Sender is a mail's sender, kept apart from the
+// body the mail carries.
+internal sealed record NotifyArrival(Core.NotifySource Source, string Program, string Title, string Body, string App, string Sender = "");
 
 // Reads the notices Windows keeps, for the three programs this page shows. A notification that an application posts is
 // stored, with the text it showed, in the notification database; the database is copied aside and read with SQLite because the

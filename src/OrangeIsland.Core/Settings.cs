@@ -532,7 +532,7 @@ public sealed class DeckSettings
     public bool MonitorFrames { get; set; }
     // The notch and the capsule each switch the system readings on; what they show is shared.
     public bool NotchMonitor { get; set; }
-    public bool CapsuleMonitor { get; set; }
+    public bool CapsuleMonitor { get; set; } = true;
     // The order of the quota rings, the title or lyric, the system readings, the equalizer and the clock, for the notch and the capsule each.
     public List<CompactPart> NotchOrder { get => _notchOrder; set => _notchOrder = CompactParts.Normalize(value); }
     public List<CompactPart> CapsuleOrder { get => _capsuleOrder; set => _capsuleOrder = CompactParts.Normalize(value); }
@@ -754,7 +754,7 @@ public sealed class DeckSettings
         ThemeDaylight = (ThemeDaylight ?? "").Split('-', 2) is [var day, var night] && PanelThemes.ParseTimeOfDay(day) is { } d && PanelThemes.ParseTimeOfDay(night) is { } n && d != n
             ? PanelThemes.FormatDaylight(d, n) : "";
         Language = Loc.Normalize(Language);
-        if (!Enum.IsDefined(Style)) Style = CompactStyle.Notch;
+        if (!Enum.IsDefined(Style)) Style = CompactStyle.Capsule;
         static double Fit(double value, double min, double max, double fallback) => double.IsFinite(value) ? Math.Clamp(value, min, max) : fallback;
         static double Offset(double value) => Fit(value, -CollapsedLimits.OffsetLimit, CollapsedLimits.OffsetLimit, CollapsedLimits.OffsetDefault);
         NotchWidth = Fit(NotchWidth, CollapsedLimits.NotchWidthMin, CollapsedLimits.NotchWidthMax, CollapsedLimits.NotchWidthDefault);

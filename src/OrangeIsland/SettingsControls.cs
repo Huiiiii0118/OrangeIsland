@@ -198,6 +198,30 @@ public sealed partial class SettingsWindow
         dialog.ShowDialog();
         return confirmed;
     }
+
+    // A result to read, with a single way out. Used for the mailbox check, whose outcome arrives after a network wait.
+    private void Notice(string title, string message)
+    {
+        var dialog = new Window { Title = title, Owner = this, Width = 400, SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, FontFamily = UI.PanelFont,
+            Background = UI.Brush(Surface), Foreground = UI.Brush(TextPrimary), ResizeMode = ResizeMode.NoResize };
+        dialog.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/OrangeIsland;component/SettingsResources.xaml", UriKind.Relative) });
+        _palette.Apply(dialog.Resources); Native.SettingsChrome.Apply(dialog);
+        dialog.SourceInitialized += (_, _) => Native.SettingsChrome.SetTheme(dialog, _palette.Dark);
+        TextOptions.SetTextFormattingMode(dialog, TextFormattingMode.Display);
+        var panel = new StackPanel { Margin = new Thickness(24, 20, 24, 20) };
+        var heading = TextLine(title, 16, TextPrimary, FontWeights.SemiBold); heading.Margin = new Thickness(0, 0, 0, 10); panel.Children.Add(heading);
+        var text = TextLine(message, 12.5, TextSecondary); text.TextWrapping = TextWrapping.Wrap; panel.Children.Add(text);
+        var ok = ActionButton(Loc.T("确定", "OK"), dialog.Close);
+        ok.Style = (Style)dialog.FindResource("SettingsPrimaryButton");
+        ok.MinWidth = 84; ok.Padding = new Thickness(14, 6, 14, 6); ok.HorizontalAlignment = HorizontalAlignment.Right;
+        ok.Margin = new Thickness(0, 20, 0, 0); ok.IsDefault = true; panel.Children.Add(ok);
+        var frame = new Border { BorderThickness = new Thickness(1), Child = panel };
+        frame.SetResourceReference(Border.BorderBrushProperty, "SettingsBorder");
+        frame.SetResourceReference(Border.BackgroundProperty, "SettingsSurface"); dialog.Content = frame;
+        dialog.Loaded += (_, _) => ok.Focus();
+        dialog.ShowDialog();
+    }
 }
 
 // A drop-down drawn as a button with a popup list (the app rows' quota source and usage app). A button reads as one that only acts;

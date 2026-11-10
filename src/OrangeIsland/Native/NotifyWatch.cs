@@ -18,6 +18,8 @@ internal sealed class NotifyWatch : IDisposable
     private readonly DispatcherTimer _mailTimer = new() { Interval = TimeSpan.FromSeconds(60) };
     private readonly Func<DeckSettings> _settings;
     private bool _mailBusy, _disposed;
+    // A result owed to the settings' "check mail" button, called once on the UI thread when this check finishes.
+    private Action<string>? _checkReport;
 
     public NotifyWatch(Dispatcher dispatcher, Func<DeckSettings> settings)
     {
@@ -34,8 +36,19 @@ internal sealed class NotifyWatch : IDisposable
     public DateTimeOffset? MailSeen { get; private set; }
     public bool MailBusy => _mailBusy;
 
-    // Asks the mailbox now, whatever the interval: the page's "check now" button.
-    public void PokeMail() { _mailTimer.Stop(); _mailTimer.Start(); PollMail(); }
+    // Asks the mailbox now, whatever the interval: the page's "check now" button. onChecked, when given, is called once
+    // on the UI thread with the outcome, for the settings window to show as a message.
+    public void PokeMail(Action<string>? onChecked = null)
+    {
+        _checkReport = onChecked;
+        _mailTimer.Stop(); _mailTimer.Start(); PollMail();
+    }
+
+    // Hands the outcome of an asked-for check to its caller, then forgets it. Returns whether anyone is waiting.
+    private bool Report(string message)
+    {
+        var report = _checkReport; _checkReport = null; report?.Invoke(message); return report is not null;
+    }
 
     public void Start()
     {
@@ -94,18 +107,19 @@ internal sealed class NotifyWatch : IDisposable
         if (!settings.NotifyMail)
         {
             MailError = Loc.T("邮箱通知未开启，请在设置中打开", "Mail notifications are off; turn them on in settings");
-            MailStateChanged?.Invoke();
+            MailStateChanged?.Invoke(); Report(MailError);
             return;
         }
         if (settings.NotifyMailUser.Length == 0)
         {
             MailError = Loc.T("尚未填写邮箱地址", "No mailbox address yet");
-            MailStateChanged?.Invoke();
+            MailStateChanged?.Invoke(); Report(MailError);
             return;
         }
-        if (_mailBusy || _disposed) return;
+        if (_disposed) return;
+        if (_mailBusy) { Report(Loc.T("正在检查中，请稍候", "A check is already running; please wait")); return; }
         string password = MailSecret.Read();
-        if (password.Length == 0) { MailError = Loc.T("尚未填写授权码", "No password yet"); MailStateChanged?.Invoke(); return; }
+        if (password.Length == 0) { MailError = Loc.T("尚未填写授权码", "No password yet"); MailStateChanged?.Invoke(); Report(MailError); return; }
         _mailBusy = true; MailStateChanged?.Invoke();
         string host = settings.NotifyMailHost.Length > 0 ? settings.NotifyMailHost : "imap.qq.com";
         int port = settings.NotifyMailPort;
@@ -130,6 +144,11 @@ internal sealed class NotifyWatch : IDisposable
                 _mailBusy = false; MailError = error;
                 if (error is null) MailSeen = DateTimeOffset.Now;
                 MailStateChanged?.Invoke();
+                if (error is null)
+                    Report(found.Count > 0
+                        ? Loc.T($"连接成功，发现 {found.Count} 封新邮件", $"Connected — {found.Count} new message(s) found")
+                        : Loc.T("连接成功，邮箱正常，暂无新邮件", "Connected — mailbox is fine, no new mail"));
+                else Report(error);
                 if (found.Count > 0) Arrived?.Invoke(found);
             });
         });

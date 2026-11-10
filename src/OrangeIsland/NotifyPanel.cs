@@ -17,6 +17,8 @@ public partial class MainWindow
     private string _notifyBuilt = "";
     private bool _notifyUnreadOnly;
     private NotifyItem? _notice;
+    // The notice whose whole content the page's left half shows; chosen by clicking a row (or a mail's capsule).
+    private Guid? _notifySelected;
     // How long the capsule waits for a click on it before a hover opens the panel instead (MainWindow.PointerChanged).
     private const int CapsuleClickMs = 600;
     // How long one program's icon and count stays on the capsule before the next one takes its place.
@@ -90,6 +92,25 @@ public partial class MainWindow
         // Merely looking at the page does not read a notice: the capsule stays until the user clicks it to open the program.
         string key = NotifyBuildKey();
         if (key == _notifyBuilt && content.Children.Count > 0) return;
+        // Two halves: the left shows the chosen notice whole, the right keeps the list as it was. Nothing pops up any more.
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Clamp(width * .42, 170, 320)) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var detail = NoticeDetail();
+        Grid.SetColumn(detail, 0);
+        grid.Children.Add(detail);
+        var list = NotifyList();
+        list.Margin = new Thickness(10, 0, 0, 0);
+        Grid.SetColumn(list, 1);
+        grid.Children.Add(list);
+        content.Children.Clear();
+        content.Children.Add(grid);
+        _notifyBuilt = key;
+    }
+
+    // The list half: the toolbar above the rows, and the status line at the bottom.
+    private FrameworkElement NotifyList()
+    {
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -102,9 +123,89 @@ public partial class MainWindow
         status.Margin = new Thickness(2, 4, 2, 0);
         Grid.SetRow(status, 2);
         grid.Children.Add(status);
-        content.Children.Clear();
-        content.Children.Add(grid);
-        _notifyBuilt = key;
+        return grid;
+    }
+
+    // The detail half: the chosen notice whole, in a card. Nothing is chosen until a row is clicked; a chosen notice that
+    // has been deleted falls back to the hint. The card is built once per page render and only its content is refilled,
+    // so choosing a notice never rebuilds the list nor moves its scroll.
+    private System.Windows.Controls.Border? _notifyDetail;
+
+    private FrameworkElement NoticeDetail()
+    {
+        var host = new System.Windows.Controls.Border
+        {
+            Background = UI.Brush(PanelTheme.Hex("fill")), CornerRadius = new CornerRadius(PanelTheme.Corner(8)),
+            Padding = new Thickness(12, 10, 12, 10),
+        };
+        _notifyDetail = host;
+        FillNoticeDetail();
+        return host;
+    }
+
+    private void FillNoticeDetail()
+    {
+        if (_notifyDetail is not { } host) return;
+        var item = _notifySelected is { } id ? (_app.Notices?.Items ?? []).FirstOrDefault(i => i.Id == id) : null;
+        if (item is null)
+        {
+            host.Child = UI.Centered(Loc.T("点击右侧通知查看内容", "Click a notice to read it here"), 12, UI.Tertiary, font: UI.TextFont);
+            return;
+        }
+        var stack = new StackPanel();
+        var (name, _) = NoticeText(item);
+        var heading = UI.Line(name, 15, UI.Primary, FontWeights.SemiBold);
+        heading.TextWrapping = TextWrapping.Wrap;
+        stack.Children.Add(heading);
+        var meta = UI.Line($"{item.SourceName} · {item.At.LocalDateTime:yyyy-MM-dd HH:mm}", 11.5, UI.Tertiary);
+        meta.Margin = new Thickness(0, 4, 0, 0);
+        stack.Children.Add(meta);
+        var body = NoticeBody(item);
+        body.Margin = new Thickness(0, 10, 0, 0);
+        stack.Children.Add(body);
+        host.Child = new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Focusable = false };
+    }
+
+    // The one-time code's green. The theme palette has no green token, so the digits carry their own.
+    private const string CodeGreen = "#34C759";
+
+    // The notice's whole text, newlines kept. A one-time code the notice carries is drawn in green, and clicking it copies
+    // the digits — the one thing to be read and typed out of the message.
+    private TextBlock NoticeBody(NotifyItem item)
+    {
+        string full = item.Source == NotifySource.Mail
+            ? string.Join("\n\n", new[] { item.Title, item.Body }.Where(part => part.Length > 0))
+            : string.Join("\n\n", new[] { item.Body, item.Title }.Where(part => part.Length > 0));
+        var text = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap, FontSize = 13, FontFamily = UI.TextFont,
+            Foreground = UI.Brush(UI.Primary), LineHeight = 21
+        };
+        string? code = VerifyCodes.Of(item.Title, item.Body);
+        int at = code is { Length: > 0 } digits ? full.IndexOf(digits, StringComparison.Ordinal) : -1;
+        if (code is null || at < 0) { text.Text = full; return text; }
+        if (at > 0) text.Inlines.Add(new Run(full[..at]));
+        // A plain Run cannot be clicked, so the digits go in as a small element of their own.
+        text.Inlines.Add(new InlineUIContainer(CodeChip(code)) { BaselineAlignment = BaselineAlignment.Center });
+        if (at + code.Length < full.Length) text.Inlines.Add(new Run(full[(at + code.Length)..]));
+        return text;
+    }
+
+    // The green digits of a one-time code; a click copies them.
+    private FrameworkElement CodeChip(string code)
+    {
+        var chip = new Border
+        {
+            Background = Brushes.Transparent, Padding = new Thickness(0, 1, 0, 1), Cursor = Cursors.Hand,
+            ToolTip = Loc.T("点击复制验证码", "Click to copy the code"),
+        };
+        chip.Child = UI.Line(code, 13.5, CodeGreen, FontWeights.SemiBold);
+        chip.MouseLeftButtonUp += (_, e) =>
+        {
+            _app.CopyToClipboard(new ClipEntry { Kind = ClipKind.Text, Text = code });
+            e.Handled = true;
+        };
+        return chip;
     }
 
     // The page's last line says only that the programs are being watched; a mailbox that refused its sign-in is the one thing
@@ -135,13 +236,6 @@ public partial class MainWindow
             new SegmentItem(all, all, !_notifyUnreadOnly, () => { _notifyUnreadOnly = false; _notifyBuilt = ""; RenderNotify(); }),
             new SegmentItem(fresh, fresh, _notifyUnreadOnly, () => { _notifyUnreadOnly = true; _notifyBuilt = ""; RenderNotify(); })
         ], 11, 20, 8, centerText: true));
-        if (Settings.NotifyMail)
-        {
-            var check = IconText(Loc.T("检查邮箱", "Check mail"));
-            check.Margin = new Thickness(10, 0, 0, 0);
-            check.Click += (_, _) => { _app.CheckMailNow(); _notifyBuilt = ""; RenderNotify(); };
-            right.Children.Add(check);
-        }
         var read = IconText(Loc.T("全部已读", "Mark all read"));
         read.Margin = new Thickness(10, 0, 0, 0);
         read.Click += (_, _) => { _app.Notices?.MarkAllRead(); _notifyBuilt = ""; RenderNotify(); };
@@ -164,8 +258,8 @@ public partial class MainWindow
         if (items.Count == 0)
         {
             var empty = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
-            empty.Children.Add(UI.Fixed(_notifyUnreadOnly ? Loc.T("没有未读通知", "Nothing unread") : Loc.T("还没有通知", "No notifications yet"), 12.5, 20, UI.Secondary));
-            empty.Children.Add(UI.Fixed(Loc.T("微信、QQ、邮件或其他聊天软件有新消息时会显示在这里", "Notices from WeChat, QQ, mail or another chat program appear here"), 10.5, 18, UI.Tertiary));
+            empty.Children.Add(UI.Fixed(_notifyUnreadOnly ? Loc.T("没有未读通知", "Nothing unread") : Loc.T("还没有通知", "No notifications yet"), 13.5, 22, UI.Secondary));
+            empty.Children.Add(UI.Fixed(Loc.T("微信、QQ、邮件或其他聊天软件有新消息时会显示在这里", "Notices from WeChat, QQ, mail or another chat program appear here"), 11.5, 20, UI.Tertiary));
             return empty;
         }
         foreach (var item in items) panel.Children.Add(NotifyRow(item));
@@ -184,9 +278,10 @@ public partial class MainWindow
     }
 
     // The name and the content of a notice. A chat notice names the sender and carries the message; a mail names its
-    // sender in Body and its subject in Title, so the two sources swap which field is which.
+    // sender in Sender (older notices keep the name in Body) and its subject in Title, and carries its whole text in Body.
     private static (string Name, string Content) NoticeText(NotifyItem item) => item.Source == NotifySource.Mail
-        ? (item.Body.Length > 0 ? item.Body : item.SourceName, item.Title.Length > 0 ? item.Title : item.Body)
+        ? (item.Sender.Length > 0 ? item.Sender : (item.Body.Length > 0 && item.Body.Length < 80 ? item.Body : item.SourceName),
+            item.Title.Length > 0 ? item.Title : item.SourceName)
         : (item.Title.Length > 0 ? item.Title : item.SourceName, item.Body.Length > 0 ? item.Body : item.Title);
 
     // A mail's sender is kept as "Name <address>"; on the collapsed bar the name alone is what fits.
@@ -197,16 +292,18 @@ public partial class MainWindow
         return trimmed.Length > 0 ? trimmed : name.Trim();
     }
 
-    // A row in the size of the clipboard's rows: the program's own icon, the sender's name, the notice's content and the
-    // time. A mail shows only the first 40 characters of its subject, so a click opens it whole; a chat notice already shows
-    // its message in full and is not opened at all. A click never clears the list.
+    // A row: the program's own icon, the sender's name, the notice's content and the time. The rows are sized so a page
+    // shows three of them, and the type is read without leaning in. Every row is clickable: the click shows the notice
+    // whole on the page's left half, without reading it. A mail shows the first forty characters of its subject; a notice
+    // that carries a one-time code shows the digits too, before the text, so the code is on the row without opening
+    // anything. A click never clears the list.
     private FrameworkElement NotifyRow(NotifyItem item)
     {
-        var grid = new Grid { Height = 34 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(20) });
+        var grid = new Grid { Height = 44 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var badge = SourceBadge(item.Program, item.Source, 15);
+        var badge = SourceBadge(item.Program, item.Source, 18);
         badge.HorizontalAlignment = HorizontalAlignment.Center;
         badge.VerticalAlignment = VerticalAlignment.Center;
         badge.ToolTip = item.SourceName;
@@ -214,95 +311,58 @@ public partial class MainWindow
         var (name, content) = NoticeText(item);
         var shown = item.Source == NotifySource.Mail ? Preview(content, MailPreviewChars) : Preview(content, int.MaxValue);
         var text = new StackPanel { Margin = new Thickness(0, 2, 8, 2), VerticalAlignment = VerticalAlignment.Center };
-        var heading = UI.Line(name, 12.5, item.Read ? UI.Secondary : UI.Primary);
+        var heading = UI.Line(name, 14, item.Read ? UI.Secondary : UI.Primary);
         heading.TextTrimming = TextTrimming.CharacterEllipsis;
         text.Children.Add(heading);
         if (shown.Length > 0 && shown != name)
         {
-            var body = UI.Line(shown, 10.5, UI.Tertiary);
+            // The code stands before the text, in the row's own colours: the green copyable one lives in the detail half.
+            var body = CodeRowText(item, shown);
             body.Margin = new Thickness(0, 1, 0, 0);
             body.TextTrimming = TextTrimming.CharacterEllipsis;
             text.Children.Add(body);
         }
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
-        var time = UI.Centered(item.Age, 10.5, UI.Tertiary, font: UI.TextFont);
+        var time = UI.Centered(item.Age, 11, UI.Tertiary, font: UI.TextFont);
         time.Margin = new Thickness(6, 0, 8, 0);
         Grid.SetColumn(time, 2);
         grid.Children.Add(time);
 
-        var row = PageRow(grid, 34);
+        var row = PageRow(grid, 44);
         row.Tag = item;
         row.ContextMenu = NotifyMenu(item);
-        // A mail is worth opening in full, since its subject is cut to forty characters on the row. A chat notice shows its
-        // message whole already, so a click on it opens nothing.
-        if (item.Source == NotifySource.Mail)
-        {
-            row.ToolTip = Loc.T("点击查看完整邮件", "Click to read the whole mail");
-            row.Cursor = Cursors.Hand;
-            row.MouseLeftButtonUp += (_, _) => OpenNoticeDetail(item);
-        }
+        row.ToolTip = Loc.T("点击查看内容", "Click to read the whole notice");
+        row.Cursor = Cursors.Hand;
+        row.MouseLeftButtonUp += (_, _) => SelectNotice(item);
         return row;
     }
 
-    // The whole mail, opened from its row: the sender, the full subject and the time. Reading it does not mark it read,
-    // clear the list or dismiss the capsule — only a click on the capsule itself opens the program.
-    private Window? _noticeDetail;
-    private void OpenNoticeDetail(NotifyItem item)
+    // A row's second line: the notice's text, led by its one-time code when it carries one. The digits keep the primary
+    // colour and a heavier weight, so they are read first; the rest of the line stays tertiary.
+    private TextBlock CodeRowText(NotifyItem item, string shown)
     {
-        _noticeDetail?.Close();
-        var (name, _) = NoticeText(item);
-        var lines = new List<string>();
-        if (item.Source == NotifySource.Mail)
+        string? code = VerifyCodes.Of(item.Title, item.Body);
+        if (code is not { Length: > 0 } digits || shown.Contains(digits, StringComparison.Ordinal))
+            return UI.Line(shown, 12, UI.Tertiary);
+        var text = new TextBlock
         {
-            lines.Add($"{Loc.T("发件人", "From")}: {item.Body}");
-            lines.Add($"{Loc.T("主题", "Subject")}: {item.Title}");
-        }
-        else
-        {
-            if (item.Title.Length > 0) lines.Add($"{Loc.T("来自", "From")}: {item.Title}");
-            if (item.Body.Length > 0) lines.Add(item.Body);
-        }
-        lines.Add($"{Loc.T("时间", "Time")}: {item.At.LocalDateTime:yyyy-MM-dd HH:mm} · {item.SourceName}");
-        string full = string.Join("\n\n", lines.Where(line => line.Length > 0));
+            FontFamily = UI.TextFont, FontSize = 12, Foreground = UI.Brush(UI.Tertiary),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        text.Inlines.Add(new Run(digits + " · ") { Foreground = UI.Brush(UI.Primary), FontWeight = FontWeights.SemiBold });
+        text.Inlines.Add(new Run(shown));
+        return text;
+    }
 
-        var dialog = new Window
-        {
-            Title = Loc.T("通知内容", "Notice details"), Owner = this,
-            Width = 540, Height = 380, MinWidth = 380, MinHeight = 260,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowInTaskbar = false,
-            FontFamily = UI.PanelFont, Background = UI.Brush(PanelTheme.Hex("surface")), Foreground = UI.Brush(UI.Primary)
-        };
-        // The system caption follows the panel's theme, so the details window does not show a white title bar on a dark skin.
-        dialog.SourceInitialized += (_, _) => Native.SettingsChrome.SetTheme(dialog, PanelTheme.Current.IsDark);
-        var grid = new Grid { Margin = new Thickness(20) };
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var title = UI.Text(name, 16, UI.Primary, FontWeights.SemiBold);
-        title.Margin = new Thickness(0, 0, 0, 14);
-        grid.Children.Add(title);
-        var box = new TextBox
-        {
-            Text = full, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, AcceptsReturn = true,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, FontSize = 13, FontFamily = UI.PanelFont,
-            Background = UI.Brush(PanelTheme.Hex("fill")), Foreground = UI.Brush(UI.Primary),
-            BorderBrush = UI.Brush(UI.Hairline), BorderThickness = new Thickness(1), Padding = new Thickness(12)
-        };
-        Grid.SetRow(box, 1);
-        grid.Children.Add(box);
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
-        var copy = new Button { Content = Loc.T("复制内容", "Copy text"), Padding = new Thickness(14, 6, 14, 6), MinWidth = 96, Margin = new Thickness(0, 0, 8, 0) };
-        copy.Click += (_, _) => _app.CopyToClipboard(new ClipEntry { Kind = ClipKind.Text, Text = full });
-        var close = new Button { Content = Loc.T("关闭", "Close"), Padding = new Thickness(14, 6, 14, 6), MinWidth = 80, IsCancel = true };
-        close.Click += (_, _) => dialog.Close();
-        buttons.Children.Add(copy); buttons.Children.Add(close);
-        Grid.SetRow(buttons, 2);
-        grid.Children.Add(buttons);
-        dialog.Content = grid;
-        dialog.Closed += (_, _) => { if (ReferenceEquals(_noticeDetail, dialog)) _noticeDetail = null; };
-        _noticeDetail = dialog;
-        dialog.Show();
+    // A row was clicked: its notice shows whole on the left half. Reading it here does not mark it read, clear the list or
+    // dismiss the capsule — only a click on the capsule (or bringing the program up) does that. Only the detail card is
+    // refilled, so the list keeps its scroll instead of jumping back to the top.
+    private void SelectNotice(NotifyItem item)
+    {
+        if (_notifySelected == item.Id) return;
+        _notifySelected = item.Id;
+        if (IsNotifyPage && _expanded) FillNoticeDetail();
     }
 
     private ContextMenu NotifyMenu(NotifyItem item)
@@ -685,7 +745,8 @@ public partial class MainWindow
 
     // A click on the capsule: the program it is showing comes to the front, and everything that program announced is read
     // with it. The notices stay in the list so their text can still be opened; only their unread state ends, and only for
-    // this program — the other programs keep waiting.
+    // this program — the other programs keep waiting. A mail's capsule opens the page instead of the mail program: the
+    // message shows whole on the page's left half, and the notices stay unread until they are answered for themselves.
     private void OpenNoticeApp(NotifyStore store)
     {
         // The page on screen decides which program a click deals with. A pill rebuilt since can hold a notice that has been
@@ -693,6 +754,14 @@ public partial class MainWindow
         var notice = _capsuleNotice is { Read: false } shown ? shown : store.LatestUnread;
         if (notice is not { } latest) return;
         _hover.Stop();
+        if (latest.Source == NotifySource.Mail && DeckPages.Shown(Settings, DeckPage.Notify))
+        {
+            _notifySelected = latest.Id;
+            _notifyBuilt = "";
+            if (!IsNotifyPage) SelectPage(DeckPage.Notify, remember: false);
+            if (!_expanded) SetExpanded(true); else RenderNotify();
+            return;
+        }
         // Marking the whole program read happens on the click itself, whether or not its window came up — the user has
         // answered the capsule either way. Clearing would erase the notification information, which the page keeps until
         // the user chooses "Clear" or deletes a row by hand.
