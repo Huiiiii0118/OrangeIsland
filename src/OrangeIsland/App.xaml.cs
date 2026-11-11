@@ -153,6 +153,8 @@ public partial class App : Application
         }
         // A portable update that kept this version says why on the About page.
         else if (Updates.RestartFailed) OpenUpdateSettings();
+        // "Later" in the update dialog: the next start offers the update again on the About page.
+        ShowDeferredUpdate();
     }
     // 1.0.0 renamed the data folder along with the program. On the first start of the renamed build the new folder does
     // not exist yet, so the old settings, themes, history and caches move over once. Update downloads are left behind:

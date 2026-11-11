@@ -45,18 +45,14 @@ public static class UpdateSchedule
     {
         var due = started + StartupDelay;
         if (lastSuccess is { } success && success + Interval > due) due = success + Interval;
-        if (failures > 0 && lastFailure is { } failure)
-        {
-            var backoff = Backoff(failures);
-            if (failure + backoff > due) due = failure + backoff;
-        }
+        if (failures > 0 && lastFailure is { } failure && failure + Backoff(failures) > due) due = failure + Backoff(failures);
         if (retryUntil is { } retry && retry > due) due = retry;
         return due;
     }
 }
 
-// update-state.json in the data folder. It replaced update-prompt.txt, which held only the prompted version. A deferred
-// prompt is deliberately not stored here: "Later" lasts until the app is restarted, not forever.
+// update-state.json in the data folder. It replaced update-prompt.txt, which held only the prompted version. "Later"
+// records the deferred version here so the very next start can offer it again; the per-run prompt guard stays in memory.
 public sealed class AppUpdateState
 {
     public DateTimeOffset? LastSuccess { get; set; }
@@ -67,6 +63,9 @@ public sealed class AppUpdateState
     // The version that ran last, and the one an update replaced until its notes are opened ("" when not recorded).
     public string? RunVersion { get; set; }
     public string? UpdatedFrom { get; set; }
+    // "Later" asks for the update to be offered again on the next start. This is the only prompt choice that survives
+    // a restart; unlike SkipVersion it does not decline the release. Cleared when that next start shows the offer.
+    public string? DeferredVersion { get; set; }
 }
 
 // All commands originate on the UI thread. The backend may report progress from a worker thread.
@@ -82,8 +81,14 @@ public sealed class AppUpdates
     private DateTimeOffset? _lastFailure, _retryUntil;
     private Task? _check;
     // "Later" silences the update dialog for this run only: restarting the app brings the prompt back. Skipping a version
-    // is the persistent choice (AppUpdateState.SkippedVersion); a prompt that was merely deferred must never be saved.
+    // is the persistent choice (AppUpdateState.SkippedVersion).
     private string? _promptedThisRun;
+    // Set by "Later" for the rest of this run: the in-flight download is cancelled and no install-confirm overlay may
+    // appear. The deferred version is persisted so the next start offers the update again.
+    private bool _deferredThisRun;
+    // A download that just finished and is waiting for the in-app confirm overlay. It is consumed when the overlay is
+    // dismissed, so a Ready package that was already there before this run never raises the overlay on its own.
+    public string? ConfirmInstallVersion { get; private set; }
     // Background checks fail silently; a check that a person started or joined reports its error.
     private bool _quiet;
     private CancellationTokenSource? _download;
@@ -95,12 +100,6 @@ public sealed class AppUpdates
     public bool HasUpdate => Release is not null;
     public bool IsBusy => Stage is AppUpdateStage.Checking or AppUpdateStage.Downloading or AppUpdateStage.Installing;
     public int Progress { get; private set; }
-    // Set only while the update dialog's "background" button sent a download off. It survives that dialog closing and
-    // lets the About page show an "updating" row with a progress bar in place of its normal controls. Every other
-    // download path leaves this false, so the About page keeps exactly the wording and buttons it always had.
-    public bool BackgroundUpdating { get; private set; }
-    public void BeginBackground() { if (BackgroundUpdating) return; BackgroundUpdating = true; Notify(); }
-    public void EndBackground() { if (!BackgroundUpdating) return; BackgroundUpdating = false; Notify(); }
     public string? Error { get; private set; }
     public DateTimeOffset? LastChecked { get; private set; }
     // The restart into a new version failed and this version started again; the app shows the error once.
@@ -241,7 +240,7 @@ public sealed class AppUpdates
     }
 
     public bool ShouldPrompt(bool settingsVisible, bool settingsActive) => settingsVisible && settingsActive &&
-        !BackgroundUpdating && Stage is AppUpdateStage.Available or AppUpdateStage.Ready &&
+        !_deferredThisRun && Stage is AppUpdateStage.Available or AppUpdateStage.Ready &&
         Release?.Version != _promptedThisRun && !IsSkipped(Release?.Version);
 
     // Remember the dialog only in memory. Closing it with "Later" (or the window's X) suppresses further prompts until
@@ -252,12 +251,47 @@ public sealed class AppUpdates
         _promptedThisRun = Release.Version;
     }
 
+    // "Later": stop downloading at once (the backend keeps its partial files for a later retry), stay silent for the
+    // rest of this run and remember the version on disk so the very next start offers the update again. The stage goes
+    // back to "available" so the app is fully usable and no bytes are still coming in. A download that finished in
+    // the same instant has already raised the confirm overlay, so clear that marker too: "Later" must never leave a
+    // prompt on screen. A package that is already Ready is kept; there is nothing left to cancel.
+    public void Defer()
+    {
+        _deferredThisRun = true;
+        ConfirmInstallVersion = null;
+        if (Release is not null) { _state.DeferredVersion = Release.Version; SaveState(); }
+        if (Stage == AppUpdateStage.Downloading)
+        {
+            CancelDownload();
+            Stage = AppUpdateStage.Available; Progress = 0; Error = null;
+        }
+        MarkPromptShown(); Notify();
+    }
+
+    // Read once at startup; true when the deferred version is still newer than this copy and was not skipped.
+    public bool ConsumeDeferred()
+    {
+        var version = _state.DeferredVersion;
+        if (version is null) return false;
+        _state.DeferredVersion = null; SaveState();
+        return !IsSkipped(version) && ApplicationVersion.Compare(version, CurrentVersion) > 0;
+    }
+
+    // A finished download asks the settings window for the in-app confirm overlay. Consumed on dismissal so an
+    // already-Ready package from a previous run never raises the overlay by itself.
+    public void ConsumeConfirmInstall()
+    {
+        if (ConfirmInstallVersion is null) return;
+        ConfirmInstallVersion = null; Notify();
+    }
+
     public async Task DownloadAsync(CancellationToken cancellation = default)
     {
         if (IsBusy || Release is null || !CanInstall || Stage == AppUpdateStage.Ready) return;
         var release = Release;
         using var download = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        _download = download; Stage = AppUpdateStage.Downloading; Progress = 0; Error = null; Notify();
+        _download = download; Stage = AppUpdateStage.Downloading; Progress = 0; Error = null; ConfirmInstallVersion = null; Notify();
         try
         {
             await _backend.DownloadAsync(release, value =>
@@ -267,10 +301,14 @@ public sealed class AppUpdates
             }, download.Token);
             download.Token.ThrowIfCancellationRequested();
             Progress = 100; Stage = AppUpdateStage.Ready;
+            // "Later" cancels the download, so it should never get here. Keep the guard for a package that finished
+            // in the same instant: "Later" must not leave a confirm overlay on screen.
+            if (!_deferredThisRun) ConfirmInstallVersion = release.Version;
         }
         catch (OperationCanceledException) when (download.IsCancellationRequested) { Stage = AppUpdateStage.Available; }
         catch (Exception) { Stage = AppUpdateStage.Available; Error = Loc.T("更新包下载或校验失败，请重试。", "The update package could not be downloaded or verified. Try again."); }
-        finally { _download = null; Notify(); }
+        // A second download may have started while the cancelled one was unwinding; do not clear its token.
+        finally { if (_download == download) _download = null; Notify(); }
     }
 
     public void CancelDownload() => _download?.Cancel();
@@ -299,6 +337,7 @@ public sealed class AppUpdates
                     _state.AvailableVersion = saved.AvailableVersion;
                     _state.SkippedVersion = saved.SkippedVersion; _state.AutoCheck = saved.AutoCheck; _state.Beta = saved.Beta;
                     _state.RunVersion = saved.RunVersion; _state.UpdatedFrom = saved.UpdatedFrom;
+                    _state.DeferredVersion = saved.DeferredVersion;
                 }
             }
             else if (File.Exists(legacyFile)) { if (SaveState()) File.Delete(legacyFile); }

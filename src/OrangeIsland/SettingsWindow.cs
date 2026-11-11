@@ -187,7 +187,12 @@ public sealed partial class SettingsWindow : Window
         var frame = new Border { Child = outer, BorderBrush = UI.Brush(_palette.Border), BorderThickness = new Thickness(1), Focusable = true, FocusVisualStyle = null };
         KeyboardNavigation.SetIsTabStop(frame, false);
         RadioGroups.Use(); RadioGroups.SetEnabled(frame, true);
-        Content = frame; RootVisual = frame; UpdateCaption(); Native.SettingsChrome.SetTheme(this, _palette.Dark); ShowPage(_page);
+        // The shell stacks an in-app confirm overlay above the whole settings window. It is rebuilt with the theme like
+        // everything else, and stays collapsed unless a finished ordinary download is waiting for the person to confirm.
+        var shell = new Grid();
+        shell.Children.Add(frame);
+        shell.Children.Add(BuildInstallConfirmOverlay());
+        Content = shell; RootVisual = shell; UpdateCaption(); Native.SettingsChrome.SetTheme(this, _palette.Dark); ShowPage(_page);
         _status.SetResourceReference(TextBlock.ForegroundProperty, "SettingsError"); PaletteChanged?.Invoke();
     }
     // Clicking anything that is not a control takes focus off a text field, as elsewhere in Windows (EmptyClickFocus).

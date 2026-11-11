@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using OrangeIsland.Core;
 
@@ -12,6 +14,12 @@ public sealed partial class SettingsWindow
     private UpdateView? _aboutUpdateView;
     private Window? _updateDialog;
     private int _updateOpenGeneration;
+    // The in-app confirm overlay shown when a download finishes. It lives inside the settings window (not a separate
+    // window), so it follows the app's theme, size and DPI, and cannot be left behind as a stray dialog.
+    private Grid? _installConfirmOverlay;
+    private TextBlock? _installConfirmText;
+    private Button? _installConfirmLater;
+    private string? _installConfirmShownFor;
 
     internal async Task CheckUpdatesOnOpenAsync()
     {
@@ -26,9 +34,8 @@ public sealed partial class SettingsWindow
     // The panel's update dot opens the About page and shows the update dialog, fetching the release details first if needed.
     internal async Task ShowUpdateNoticeAsync()
     {
-        const int aboutPage = 7;
         int generation = ++_updateOpenGeneration;
-        ShowPage(aboutPage);
+        ShowPage(AboutPage);
         await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded);
         if (!IsLoaded || !IsVisible) return;
         if (!_app.Updates.HasUpdate) await _app.Updates.CheckAsync(true, _app.Lifetime.Token);
@@ -42,6 +49,17 @@ public sealed partial class SettingsWindow
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(UpdatesChanged); return; }
         if (_updateBadge is not null) _updateBadge.Visibility = _app.Updates.HasUpdate ? Visibility.Visible : Visibility.Collapsed;
         _aboutUpdateView?.Refresh();
+        // A download just finished. Close the modal update window, bring the person to the About page and surface the
+        // in-app confirm overlay once. "Later" defers it to the next start, so that path never sets this marker.
+        var pending = _app.Updates.ConfirmInstallVersion;
+        if (pending is not null && !_app.Exiting && _installConfirmShownFor != pending)
+        {
+            if (_updateDialog is not null) _updateDialog.Close();
+            ShowPage(AboutPage);
+            ShowInstallConfirm(pending);
+        }
+        else if (pending is null && _installConfirmShownFor is not null && _installConfirmOverlay?.Visibility == Visibility.Visible)
+            DismissInstallConfirm();
     }
 
     private Border UpdateBadge()
@@ -50,6 +68,63 @@ public sealed partial class SettingsWindow
             Background = UI.Brush(Inset), VerticalAlignment = VerticalAlignment.Center, Visibility = _app.Updates.HasUpdate ? Visibility.Visible : Visibility.Collapsed,
             Child = TextLine(Loc.T("新版本", "New"), 9, _palette.Accent, FontWeights.Medium) };
         AutomationProperties.SetName(badge, Loc.T("有新版本可用", "A new version is available")); return badge;
+    }
+
+    // A themed, in-app overlay covering the whole settings window, shown when a download finishes. It is a Grid above
+    // the window content, so it follows theme, DPI and resize. "Install and restart" installs at once; "Later" (also
+    // Escape / the dim backdrop) defers the offer to the next start and leaves the package ready.
+    private Grid BuildInstallConfirmOverlay()
+    {
+        var dim = new Border { Background = UI.Brush(_palette.Dark ? "#CC101014" : "#CC6B7280") };
+        var card = new Border { CornerRadius = new CornerRadius(14), Padding = new Thickness(28, 24, 28, 24),
+            Width = 400, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        card.SetResourceReference(Border.BackgroundProperty, "SettingsSurface");
+        card.SetResourceReference(Border.BorderBrushProperty, "SettingsBorder");
+        card.BorderThickness = new Thickness(1);
+        var panel = new StackPanel();
+        var title = TextLine(Loc.T("更新已就绪", "Update is ready"), 19, TextPrimary, FontWeights.SemiBold);
+        title.Margin = new Thickness(0, 0, 0, 10); panel.Children.Add(title);
+        _installConfirmText = TextLine("", 12.5, TextSecondary); _installConfirmText.TextWrapping = TextWrapping.Wrap;
+        _installConfirmText.Margin = new Thickness(0, 0, 0, 6); panel.Children.Add(_installConfirmText);
+        var hint = TextLine(Loc.T("安装时软件会重启，你的设置会保留。", "The app restarts to finish installing; your settings are kept."), 11.5, TextTertiary);
+        hint.TextWrapping = TextWrapping.Wrap; hint.Margin = new Thickness(0, 0, 0, 22); panel.Children.Add(hint);
+        var defer = () => { _app.Updates.Defer(); DismissInstallConfirm(); };
+        var later = ActionButton(Loc.T("稍后", "Later"), defer);
+        later.Style = (Style)FindResource("SettingsOutlineButton"); later.IsCancel = true;
+        _installConfirmLater = later;
+        var installAction = () => { DismissInstallConfirm(); _app.InstallUpdate(); };
+        var install = ActionButton(Loc.T("安装并重启", "Install and restart"), installAction, true);
+        foreach (var b in new[] { later, install }) { b.MinWidth = 104; b.Padding = new Thickness(14, 7, 14, 7); }
+        install.Margin = new Thickness(8, 0, 0, 0);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(later); buttons.Children.Add(install); panel.Children.Add(buttons);
+        card.Child = panel;
+        var grid = new Grid { Visibility = Visibility.Collapsed, Background = Brushes.Transparent };
+        grid.Children.Add(dim); grid.Children.Add(card);
+        dim.MouseLeftButtonUp += (_, _) => defer();
+        card.MouseLeftButtonUp += (_, _) => { };
+        grid.PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { defer(); e.Handled = true; } };
+        _installConfirmOverlay = grid;
+        return grid;
+    }
+
+    private void ShowInstallConfirm(string version)
+    {
+        if (_installConfirmOverlay is null) return;
+        if (_installConfirmText is not null)
+            _installConfirmText.Text = Loc.T($"新版本 {version} 已下载完成，是否现在安装？", $"Version {version} has been downloaded. Install it now?");
+        _installConfirmShownFor = version;
+        _installConfirmOverlay.Visibility = Visibility.Visible;
+        // Focus the safe option so Enter/Escape cannot install by accident.
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        { if (_installConfirmOverlay?.Visibility == Visibility.Visible) _installConfirmLater?.Focus(); });
+    }
+
+    private void DismissInstallConfirm()
+    {
+        if (_installConfirmOverlay is not null) _installConfirmOverlay.Visibility = Visibility.Collapsed;
+        _installConfirmShownFor = null;
+        _app.Updates.ConsumeConfirmInstall();
     }
 
     internal void ShowUpdateDialog()
@@ -64,17 +139,19 @@ public sealed partial class SettingsWindow
         var panel = new StackPanel { Margin = new Thickness(26, 22, 26, 24) };
         var title = TextLine(Loc.T("软件更新", "Software update"), 21, TextPrimary, FontWeights.SemiBold); title.Margin = new Thickness(0, 0, 0, 22); panel.Children.Add(title);
         var view = CreateUpdateView(false); panel.Children.Add(view.Root);
-        // Background download: close this window, keep downloading behind the scenes, and install as soon as the package
-        // is ready. The About page shows "updating" with a progress bar until the app restarts into the new version.
-        var background = ActionButton(Loc.T("后台下载并安装", "Download in background"), () =>
-        {
-            _app.StartBackgroundUpdate(); dialog.Close();
-        }, true);
-        background.ToolTip = Loc.T("关闭本窗口后在后台下载，完成后自动安装并重启；期间可正常使用软件。",
-            "Closes this window and downloads quietly; installs and restarts when ready. The app stays usable throughout.");
-        var close = ActionButton(Loc.T("稍后", "Later"), dialog.Close);
-        close.ToolTip = Loc.T("本次不再提示，下次启动软件时重新提醒。", "No more prompts this run; the update is offered again the next time the app starts.");
+        // "Update in background" starts (or keeps) the download, then closes this modal window so the app is fully
+        // usable again. When the package is ready, the in-app confirm overlay asks whether to install now.
+        Action backgroundAction = () => { _app.StartBackgroundUpdate(); dialog.Close(); };
+        var background = ActionButton(Loc.T("后台更新", "Update in background"), backgroundAction);
+        background.ToolTip = Loc.T("关闭本窗口，下载在后台继续，期间可正常使用软件；下载完成后会询问是否安装。",
+            "Closes this window and keeps downloading quietly. The app stays usable; you'll be asked to confirm when it finishes.");
+        background.Style = (Style)FindResource("SettingsOutlineButton");
+        Action laterAction = () => { _app.Updates.Defer(); dialog.Close(); };
+        var close = ActionButton(Loc.T("稍后", "Later"), laterAction);
+        close.ToolTip = Loc.T("停止下载并关闭本窗口，软件照常使用；下次启动软件时重新弹出更新信息。",
+            "Stops the download and closes this window. The app stays usable; the update is offered again the next time it starts.");
         close.Style = (Style)FindResource("SettingsOutlineButton");
+
         foreach (var button in new[] { background, close }) { button.Padding = new Thickness(14, 6, 14, 6); button.MinWidth = 96; }
         background.Margin = new Thickness(0, 18, 8, 0);
         close.Margin = new Thickness(0, 18, 0, 0); close.IsCancel = true;
@@ -82,8 +159,8 @@ public sealed partial class SettingsWindow
         footer.Children.Add(background); footer.Children.Add(close); panel.Children.Add(footer);
         void Footer()
         {
-            // Only meaningful while a release is waiting to be downloaded; during/after a background run the dialog is gone.
-            background.Visibility = _app.Updates.Stage == AppUpdateStage.Available && _app.Updates.CanInstall
+            var stage = _app.Updates.Stage;
+            background.Visibility = _app.Updates.CanInstall && stage is AppUpdateStage.Available or AppUpdateStage.Downloading
                 ? Visibility.Visible : Visibility.Collapsed;
         }
         Footer();
@@ -98,7 +175,7 @@ public sealed partial class SettingsWindow
         var frame = new Border { BorderThickness = new Thickness(1), Child = panel };
         frame.SetResourceReference(Border.BorderBrushProperty, "SettingsBorder");
         frame.SetResourceReference(Border.BackgroundProperty, "SettingsSurface"); dialog.Content = frame;
-        _updateDialog = dialog; _app.Updates.MarkPromptShown(); dialog.Show();
+        _updateDialog = dialog; _app.Updates.MarkPromptShown(); dialog.ShowDialog();
     }
 
     private sealed record UpdateView(FrameworkElement Root, Action Refresh);
@@ -116,22 +193,19 @@ public sealed partial class SettingsWindow
         AutomationProperties.SetName(progress, Loc.T("更新下载进度", "Update download progress"));
         var error = TextLine("", 12, _palette.Dark ? "#F0A6AA" : "#B12E3A"); error.Margin = inline ? new Thickness(0, 0, 0, 14) : new Thickness(0, 12, 0, 0); error.TextWrapping = TextWrapping.Wrap;
         AutomationProperties.SetLiveSetting(error, AutomationLiveSetting.Assertive);
-        var primary = ActionButton(Loc.T("下载更新", "Download update"), () =>
+        Action downloadAction = () =>
         {
             if (updates.Stage == AppUpdateStage.Ready) _app.InstallUpdate();
             else if (updates.CanInstall) _ = updates.DownloadAsync(_app.Lifetime.Token);
             else SaveStatus(Loc.T("这一版由本地构建，更新请直接替换程序文件。", "This copy is built locally; replace its files to update it."), false);
-        }, true);
+        };
+        var primary = ActionButton(Loc.T("下载更新", "Download update"), downloadAction, true);
         var check = ActionButton(Loc.T("检查更新", "Check for updates"), () => { _ = updates.CheckAsync(true, _app.Lifetime.Token); });
         var skip = ActionButton(Loc.T("跳过此版本", "Skip this version"), updates.SkipVersion);
         var cancel = ActionButton(Loc.T("取消下载", "Cancel download"), updates.CancelDownload);
         check.Style = cancel.Style = skip.Style = (Style)FindResource("SettingsOutlineButton");
         foreach (var button in new[] { primary, check, cancel, skip }) { button.Padding = new Thickness(14, 6, 14, 6); button.MinWidth = 96; }
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
-        // About-page-only controls for the background-update state. The update dialog is closed before that state begins,
-        // so they are built only for the inline view; every one of them stays hidden unless BackgroundUpdating is true.
-        ProgressBar? bgBar = null; TextBlock? bgPct = null; StackPanel? bgHeader = null;
-        FrameworkElement? normalFooter = null, bgFooter = null; TextBlock? bgFooterDetail = null;
         FrameworkElement root;
         if (inline)
         {
@@ -139,28 +213,11 @@ public sealed partial class SettingsWindow
             header.ColumnDefinitions.Add(new ColumnDefinition()); header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var labels = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 10, 16, 10) };
             labels.Children.Add(title); labels.Children.Add(detail); header.Children.Add(labels);
-            // The primary action keeps the right edge; its gap is collapsed together with it.
             primary.Margin = new Thickness(8, 0, 0, 0); skip.Margin = new Thickness(0, 0, 8, 0); actions.Children.Add(skip); actions.Children.Add(check); actions.Children.Add(cancel); actions.Children.Add(primary);
             actions.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(actions, 1); header.Children.Add(actions);
-            // While a background download runs the action buttons give way to a progress bar with a percentage, in the
-            // same spot. This is the "button becomes an update progress bar" the About page shows in that state only.
-            bgPct = TextLine(Loc.T("更新中 0%", "Updating 0%"), 12, _palette.Accent, FontWeights.Medium);
-            bgPct.VerticalAlignment = VerticalAlignment.Center;
-            bgBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 5, Width = 96, Margin = new Thickness(12, 0, 0, 0),
-                Style = (Style)FindResource("SettingsUpdateProgress"), VerticalAlignment = VerticalAlignment.Center };
-            bgHeader = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
-            bgHeader.Children.Add(bgBar); bgHeader.Children.Add(bgPct); Grid.SetColumn(bgHeader, 1); header.Children.Add(bgHeader);
             var panel = new StackPanel(); panel.Children.Add(header); panel.Children.Add(progress); panel.Children.Add(error); panel.Children.Add(noteScroll);
             panel.Children.Add(new Border { Height = 1, Background = UI.Brush(_palette.RowDivider) });
-            normalFooter = Toggle(Loc.T("自动检查更新", "Check for updates automatically"), updates.AutoCheck, value => updates.AutoCheck = value);
-            // The auto-check row becomes a single "updating" line with the version and percentage — the "自动检测更新
-            // 变为更新中" state. It replaces the switch only for the duration of a background download.
-            bgFooterDetail = TextLine("", 12, TextSecondary, FontWeights.Normal);
-            var bgFooterStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            bgFooterStack.Children.Add(TextLine(Loc.T("更新中", "Updating"), 13, TextPrimary, FontWeights.SemiBold));
-            bgFooterStack.Children.Add(bgFooterDetail);
-            bgFooter = new Border { Child = bgFooterStack, Padding = new Thickness(0), Height = 44, Visibility = Visibility.Collapsed };
-            panel.Children.Add(normalFooter); panel.Children.Add(bgFooter);
+            panel.Children.Add(Toggle(Loc.T("自动检查更新", "Check for updates automatically"), updates.AutoCheck, value => updates.AutoCheck = value));
             root = panel;
         }
         else
@@ -213,30 +270,6 @@ public sealed partial class SettingsWindow
             skip.Visibility = release is not null && stage == AppUpdateStage.Available && !updates.IsSkipped(release.Version) ? Visibility.Visible : Visibility.Collapsed;
             skip.IsEnabled = !updates.IsBusy;
             AutomationProperties.SetName(primary, primary.Content.ToString());
-            // Background state overrides the About page only. The buttons and the auto-check switch step aside for a
-            // progress bar and an "updating" line; when the run ends (cancel/failure) everything above is restored as it
-            // was, so the normal wording and buttons are exactly what the user saw before. The dialog has no bg controls.
-            if (bgBar is not null && bgPct is not null && bgHeader is not null && normalFooter is not null && bgFooter is not null && bgFooterDetail is not null)
-            {
-                bool background = updates.BackgroundUpdating;
-                actions.Visibility = background ? Visibility.Collapsed : Visibility.Visible;
-                bgHeader.Visibility = background ? Visibility.Visible : Visibility.Collapsed;
-                normalFooter.Visibility = background ? Visibility.Collapsed : Visibility.Visible;
-                bgFooter.Visibility = background ? Visibility.Visible : Visibility.Collapsed;
-                progress.Visibility = !background && stage == AppUpdateStage.Downloading ? Visibility.Visible : Visibility.Collapsed;
-                if (background)
-                {
-                    bgBar.Value = updates.Progress;
-                    bgPct.Text = Loc.T($"更新中 {updates.Progress}%", $"Updating {updates.Progress}%");
-                    title.Text = Loc.T($"正在后台更新 {release?.Version}", $"Updating {release?.Version} in the background");
-                    detail.Text = Loc.T("下载完成后将自动安装并重启，期间可正常使用软件。",
-                        "It installs and restarts automatically when the download finishes; the app stays usable throughout.");
-                    bgFooterDetail.Text = Loc.T($"{updates.CurrentVersion} → {release?.Version} · {updates.Progress}%",
-                        $"{updates.CurrentVersion} → {release?.Version} · {updates.Progress}%");
-                    noteScroll.Visibility = Visibility.Collapsed;
-                    error.Text = updates.Error ?? ""; error.Visibility = updates.Error is null ? Visibility.Collapsed : Visibility.Visible;
-                }
-            }
         }
         Refresh(); return new UpdateView(root, Refresh);
     }

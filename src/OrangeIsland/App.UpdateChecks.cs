@@ -1,5 +1,4 @@
 using System.Net.NetworkInformation;
-using System.Windows;
 using Microsoft.Win32;
 using OrangeIsland.Core;
 
@@ -31,31 +30,24 @@ public partial class App
         Updates.Changed -= UpdateNoticeChanged;
     }
 
-    // A download started from the update dialog's "background" button. The dialog closes so the app is fully usable; the
-    // download runs on AppUpdates (independent of any window), the About page swaps its row for an "updating" progress
-    // bar, and a successful download installs itself. Cancel/failure simply returns the About page to its normal controls.
+    // The update dialog's "Update in background" button. Starting from 1.0.0's scheme, a download is just
+    // AppUpdates.DownloadAsync running independently of the modal window: once the window closes, the app is usable
+    // again and the bytes keep coming. A download already in flight is left untouched (no second download). When it
+    // finishes, AppUpdates raises ConfirmInstallVersion and the settings window shows the in-app confirm overlay —
+    // it never installs by itself.
     internal void StartBackgroundUpdate()
     {
-        if (Exiting || Updates.Stage is not AppUpdateStage.Available || !Updates.CanInstall) return;
-        Updates.BeginBackground();
-        _ = CompleteBackgroundUpdate();
+        if (Exiting || !Updates.CanInstall || Updates.Stage != AppUpdateStage.Available) return;
+        _ = Updates.DownloadAsync(Lifetime.Token);
     }
 
-    private async Task CompleteBackgroundUpdate()
+    // "Later" is remembered on disk. On the very next start the update is offered again on the About page in the
+    // same "Software update" window. "Later" cancels the download, so the release details are fetched again.
+    internal void ShowDeferredUpdate()
     {
-        try
-        {
-            await Updates.DownloadAsync(Lifetime.Token);
-            if (Exiting || Updates.Stage != AppUpdateStage.Ready) return;
-            // Ready means the package is staged and verified. Installing shuts the app down; there is no UI to restore.
-            InstallUpdate();
-        }
-        finally
-        {
-            // Reached only when the download was cancelled or failed (a successful install exits the process). Normal
-            // wording and buttons come back, and nothing is left stuck showing "updating".
-            Updates.EndBackground();
-        }
+        if (Exiting || !Updates.ConsumeDeferred()) return;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, () =>
+        { if (!Exiting) OpenUpdateSettings(); });
     }
 
     internal void CheckUpdatesIfDue()
