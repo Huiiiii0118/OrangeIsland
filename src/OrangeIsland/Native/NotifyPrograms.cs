@@ -67,11 +67,20 @@ internal static class NotifyPrograms
         "setup", "background", "notification", "toast", "bridge", "player", "pctray"
     ];
 
+    // WeChat's mini-program / embedded WebView runtime is shared by unrelated products: QQ Music's wmpf, DingTalk's
+    // embedded pages and other Tencent (or third-party) shells all ship a process called WeChatAppEx. Its name alone
+    // cannot prove a notice came from WeChat — on this machine it belongs to QQ Music — so these container names are
+    // never used to attribute a notice. The real client is still recognised by its own processes (weixin / wechat).
+    private static readonly string[] SharedContainers = ["wechatappex", "wechatweb", "wechatplayer"];
+
     // The program whose process this is, by its name: only the programs listed above count.
     public static NotifyProgram? FromProcess(string process)
     {
         string name = process.ToLowerInvariant();
         if (name.Length == 0) return null;
+        // A shared mini-program container is never attributed from its name, before either the exact or the prefix match.
+        foreach (var container in SharedContainers)
+            if (name.StartsWith(container, StringComparison.Ordinal)) return null;
         if (ByProcess.TryGetValue(name, out var known)) return known;
         foreach (var (key, program) in ByProcess)
             if (name.StartsWith(key, StringComparison.Ordinal) && name.Length > key.Length

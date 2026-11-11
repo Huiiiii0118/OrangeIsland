@@ -64,10 +64,30 @@ public sealed partial class SettingsWindow
         var panel = new StackPanel { Margin = new Thickness(26, 22, 26, 24) };
         var title = TextLine(Loc.T("软件更新", "Software update"), 21, TextPrimary, FontWeights.SemiBold); title.Margin = new Thickness(0, 0, 0, 22); panel.Children.Add(title);
         var view = CreateUpdateView(false); panel.Children.Add(view.Root);
-        var close = ActionButton(Loc.T("稍后", "Later"), dialog.Close); close.HorizontalAlignment = HorizontalAlignment.Right;
+        // Background download: close this window, keep downloading behind the scenes, and install as soon as the package
+        // is ready. The About page shows "updating" with a progress bar until the app restarts into the new version.
+        var background = ActionButton(Loc.T("后台下载并安装", "Download in background"), () =>
+        {
+            _app.StartBackgroundUpdate(); dialog.Close();
+        }, true);
+        background.ToolTip = Loc.T("关闭本窗口后在后台下载，完成后自动安装并重启；期间可正常使用软件。",
+            "Closes this window and downloads quietly; installs and restarts when ready. The app stays usable throughout.");
+        var close = ActionButton(Loc.T("稍后", "Later"), dialog.Close);
         close.ToolTip = Loc.T("本次不再提示，下次启动软件时重新提醒。", "No more prompts this run; the update is offered again the next time the app starts.");
-        close.Margin = new Thickness(0, 18, 0, 0); close.IsCancel = true; panel.Children.Add(close);
-        void Refresh() { if (!dialog.Dispatcher.HasShutdownStarted) dialog.Dispatcher.InvokeAsync(view.Refresh); }
+        close.Style = (Style)FindResource("SettingsOutlineButton");
+        foreach (var button in new[] { background, close }) { button.Padding = new Thickness(14, 6, 14, 6); button.MinWidth = 96; }
+        background.Margin = new Thickness(0, 18, 8, 0);
+        close.Margin = new Thickness(0, 18, 0, 0); close.IsCancel = true;
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        footer.Children.Add(background); footer.Children.Add(close); panel.Children.Add(footer);
+        void Footer()
+        {
+            // Only meaningful while a release is waiting to be downloaded; during/after a background run the dialog is gone.
+            background.Visibility = _app.Updates.Stage == AppUpdateStage.Available && _app.Updates.CanInstall
+                ? Visibility.Visible : Visibility.Collapsed;
+        }
+        Footer();
+        void Refresh() { if (!dialog.Dispatcher.HasShutdownStarted) dialog.Dispatcher.InvokeAsync(() => { view.Refresh(); Footer(); }); }
         void Theme()
         {
             _palette.Apply(dialog.Resources); dialog.Background = UI.Brush(Surface); dialog.Foreground = UI.Brush(TextPrimary);
@@ -78,7 +98,7 @@ public sealed partial class SettingsWindow
         var frame = new Border { BorderThickness = new Thickness(1), Child = panel };
         frame.SetResourceReference(Border.BorderBrushProperty, "SettingsBorder");
         frame.SetResourceReference(Border.BackgroundProperty, "SettingsSurface"); dialog.Content = frame;
-        _updateDialog = dialog; _app.Updates.MarkPromptShown(); dialog.ShowDialog();
+        _updateDialog = dialog; _app.Updates.MarkPromptShown(); dialog.Show();
     }
 
     private sealed record UpdateView(FrameworkElement Root, Action Refresh);
@@ -108,6 +128,10 @@ public sealed partial class SettingsWindow
         check.Style = cancel.Style = skip.Style = (Style)FindResource("SettingsOutlineButton");
         foreach (var button in new[] { primary, check, cancel, skip }) { button.Padding = new Thickness(14, 6, 14, 6); button.MinWidth = 96; }
         var actions = new StackPanel { Orientation = Orientation.Horizontal };
+        // About-page-only controls for the background-update state. The update dialog is closed before that state begins,
+        // so they are built only for the inline view; every one of them stays hidden unless BackgroundUpdating is true.
+        ProgressBar? bgBar = null; TextBlock? bgPct = null; StackPanel? bgHeader = null;
+        FrameworkElement? normalFooter = null, bgFooter = null; TextBlock? bgFooterDetail = null;
         FrameworkElement root;
         if (inline)
         {
@@ -118,9 +142,25 @@ public sealed partial class SettingsWindow
             // The primary action keeps the right edge; its gap is collapsed together with it.
             primary.Margin = new Thickness(8, 0, 0, 0); skip.Margin = new Thickness(0, 0, 8, 0); actions.Children.Add(skip); actions.Children.Add(check); actions.Children.Add(cancel); actions.Children.Add(primary);
             actions.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(actions, 1); header.Children.Add(actions);
+            // While a background download runs the action buttons give way to a progress bar with a percentage, in the
+            // same spot. This is the "button becomes an update progress bar" the About page shows in that state only.
+            bgPct = TextLine(Loc.T("更新中 0%", "Updating 0%"), 12, _palette.Accent, FontWeights.Medium);
+            bgPct.VerticalAlignment = VerticalAlignment.Center;
+            bgBar = new ProgressBar { Minimum = 0, Maximum = 100, Height = 5, Width = 96, Margin = new Thickness(12, 0, 0, 0),
+                Style = (Style)FindResource("SettingsUpdateProgress"), VerticalAlignment = VerticalAlignment.Center };
+            bgHeader = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+            bgHeader.Children.Add(bgBar); bgHeader.Children.Add(bgPct); Grid.SetColumn(bgHeader, 1); header.Children.Add(bgHeader);
             var panel = new StackPanel(); panel.Children.Add(header); panel.Children.Add(progress); panel.Children.Add(error); panel.Children.Add(noteScroll);
             panel.Children.Add(new Border { Height = 1, Background = UI.Brush(_palette.RowDivider) });
-            panel.Children.Add(Toggle(Loc.T("自动检查更新", "Check for updates automatically"), updates.AutoCheck, value => updates.AutoCheck = value));
+            normalFooter = Toggle(Loc.T("自动检查更新", "Check for updates automatically"), updates.AutoCheck, value => updates.AutoCheck = value);
+            // The auto-check row becomes a single "updating" line with the version and percentage — the "自动检测更新
+            // 变为更新中" state. It replaces the switch only for the duration of a background download.
+            bgFooterDetail = TextLine("", 12, TextSecondary, FontWeights.Normal);
+            var bgFooterStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            bgFooterStack.Children.Add(TextLine(Loc.T("更新中", "Updating"), 13, TextPrimary, FontWeights.SemiBold));
+            bgFooterStack.Children.Add(bgFooterDetail);
+            bgFooter = new Border { Child = bgFooterStack, Padding = new Thickness(0), Height = 44, Visibility = Visibility.Collapsed };
+            panel.Children.Add(normalFooter); panel.Children.Add(bgFooter);
             root = panel;
         }
         else
@@ -173,6 +213,30 @@ public sealed partial class SettingsWindow
             skip.Visibility = release is not null && stage == AppUpdateStage.Available && !updates.IsSkipped(release.Version) ? Visibility.Visible : Visibility.Collapsed;
             skip.IsEnabled = !updates.IsBusy;
             AutomationProperties.SetName(primary, primary.Content.ToString());
+            // Background state overrides the About page only. The buttons and the auto-check switch step aside for a
+            // progress bar and an "updating" line; when the run ends (cancel/failure) everything above is restored as it
+            // was, so the normal wording and buttons are exactly what the user saw before. The dialog has no bg controls.
+            if (bgBar is not null && bgPct is not null && bgHeader is not null && normalFooter is not null && bgFooter is not null && bgFooterDetail is not null)
+            {
+                bool background = updates.BackgroundUpdating;
+                actions.Visibility = background ? Visibility.Collapsed : Visibility.Visible;
+                bgHeader.Visibility = background ? Visibility.Visible : Visibility.Collapsed;
+                normalFooter.Visibility = background ? Visibility.Collapsed : Visibility.Visible;
+                bgFooter.Visibility = background ? Visibility.Visible : Visibility.Collapsed;
+                progress.Visibility = !background && stage == AppUpdateStage.Downloading ? Visibility.Visible : Visibility.Collapsed;
+                if (background)
+                {
+                    bgBar.Value = updates.Progress;
+                    bgPct.Text = Loc.T($"更新中 {updates.Progress}%", $"Updating {updates.Progress}%");
+                    title.Text = Loc.T($"正在后台更新 {release?.Version}", $"Updating {release?.Version} in the background");
+                    detail.Text = Loc.T("下载完成后将自动安装并重启，期间可正常使用软件。",
+                        "It installs and restarts automatically when the download finishes; the app stays usable throughout.");
+                    bgFooterDetail.Text = Loc.T($"{updates.CurrentVersion} → {release?.Version} · {updates.Progress}%",
+                        $"{updates.CurrentVersion} → {release?.Version} · {updates.Progress}%");
+                    noteScroll.Visibility = Visibility.Collapsed;
+                    error.Text = updates.Error ?? ""; error.Visibility = updates.Error is null ? Visibility.Collapsed : Visibility.Visible;
+                }
+            }
         }
         Refresh(); return new UpdateView(root, Refresh);
     }

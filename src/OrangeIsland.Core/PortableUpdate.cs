@@ -178,6 +178,18 @@ public static class PortableUpdate
         try { File.Delete(path); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
+    // Backup folders a previous replacement left behind: an interrupted helper, or the copy restored after a failed
+    // swap. The updater calls this once after a new version starts, so stale backups never pile up in the app folder.
+    public static void CleanupBackups(string target)
+    {
+        try
+        {
+            foreach (var folder in Directory.GetDirectories(target, BackupPrefix + "*"))
+                TryDeleteTree(folder);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
     private static void TryDeleteTree(string path)
     {
         try { if (Directory.Exists(path)) Directory.Delete(path, true); }

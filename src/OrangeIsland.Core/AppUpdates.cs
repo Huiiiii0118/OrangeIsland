@@ -95,6 +95,12 @@ public sealed class AppUpdates
     public bool HasUpdate => Release is not null;
     public bool IsBusy => Stage is AppUpdateStage.Checking or AppUpdateStage.Downloading or AppUpdateStage.Installing;
     public int Progress { get; private set; }
+    // Set only while the update dialog's "background" button sent a download off. It survives that dialog closing and
+    // lets the About page show an "updating" row with a progress bar in place of its normal controls. Every other
+    // download path leaves this false, so the About page keeps exactly the wording and buttons it always had.
+    public bool BackgroundUpdating { get; private set; }
+    public void BeginBackground() { if (BackgroundUpdating) return; BackgroundUpdating = true; Notify(); }
+    public void EndBackground() { if (!BackgroundUpdating) return; BackgroundUpdating = false; Notify(); }
     public string? Error { get; private set; }
     public DateTimeOffset? LastChecked { get; private set; }
     // The restart into a new version failed and this version started again; the app shows the error once.
@@ -235,7 +241,8 @@ public sealed class AppUpdates
     }
 
     public bool ShouldPrompt(bool settingsVisible, bool settingsActive) => settingsVisible && settingsActive &&
-        Stage is AppUpdateStage.Available or AppUpdateStage.Ready && Release?.Version != _promptedThisRun && !IsSkipped(Release?.Version);
+        !BackgroundUpdating && Stage is AppUpdateStage.Available or AppUpdateStage.Ready &&
+        Release?.Version != _promptedThisRun && !IsSkipped(Release?.Version);
 
     // Remember the dialog only in memory. Closing it with "Later" (or the window's X) suppresses further prompts until
     // the app is next started; "Skip this version" is the one that survives a restart.

@@ -17,6 +17,9 @@ public partial class MainWindow
     private string _notifyBuilt = "";
     private bool _notifyUnreadOnly;
     private NotifyItem? _notice;
+    // Where the notice list was scrolled to. Reading a notice marks it read, which rebuilds the page; keep the offset so
+    // the list does not jump back to the top under the pointer.
+    private double _notifyScroll;
     // The notice whose whole content the page's left half shows; chosen by clicking a row (or a mail's capsule).
     private Guid? _notifySelected;
     // How long the capsule waits for a click on it before a hover opens the panel instead (MainWindow.PointerChanged).
@@ -266,13 +269,20 @@ public partial class MainWindow
         var items = (_app.Notices?.Items ?? []).Where(item => !_notifyUnreadOnly || !item.Read).ToList();
         if (items.Count == 0)
         {
+            _notifyScroll = 0;
             var empty = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0) };
             empty.Children.Add(UI.Fixed(_notifyUnreadOnly ? Loc.T("没有未读通知", "Nothing unread") : Loc.T("还没有通知", "No notifications yet"), 13.5, 22, UI.Secondary));
             empty.Children.Add(UI.Fixed(Loc.T("微信、QQ、邮件或其他聊天软件有新消息时会显示在这里", "Notices from WeChat, QQ, mail or another chat program appear here"), 11.5, 20, UI.Tertiary));
             return empty;
         }
         foreach (var item in items) panel.Children.Add(NotifyRow(item));
-        return PageScroll(panel);
+        var scroll = PageScroll(panel);
+        // A read rebuilds this list. Remember where it was scrolled and put it back once the new list is laid out, so
+        // reading a row does not yank the list back to the top under the pointer.
+        double restore = _notifyScroll;
+        scroll.Loaded += (_, _) => { if (restore > 0) scroll.ScrollToVerticalOffset(restore); };
+        scroll.ScrollChanged += (_, _) => _notifyScroll = scroll.VerticalOffset;
+        return scroll;
     }
 
     // A mail's subject is shortened to this many characters on the row; the whole notice opens on a click.
@@ -364,13 +374,14 @@ public partial class MainWindow
         return text;
     }
 
-    // A row was clicked: its notice shows whole on the left half. Reading it here does not mark it read, clear the list or
-    // dismiss the capsule — only a click on the capsule (or bringing the program up) does that. Only the detail card is
-    // refilled, so the list keeps its scroll instead of jumping back to the top.
+    // A row was clicked: its notice shows whole on the left half, and reading it answers just this one notice — its unread
+    // state ends, so the capsule follows the unread count and clears with it. The notice stays in the list (only "Clear"
+    // or Delete removes it), and the list keeps its scroll instead of jumping back to the top.
     private void SelectNotice(NotifyItem item)
     {
         if (_notifySelected == item.Id) return;
         _notifySelected = item.Id;
+        if (!item.Read) _app.Notices?.MarkRead(item.Id);
         if (IsNotifyPage && _expanded) FillNoticeDetail();
     }
 
@@ -755,7 +766,8 @@ public partial class MainWindow
     // A click on the capsule: the program it is showing comes to the front, and everything that program announced is read
     // with it. The notices stay in the list so their text can still be opened; only their unread state ends, and only for
     // this program — the other programs keep waiting. A mail's capsule opens the page instead of the mail program: the
-    // message shows whole on the page's left half, and the notices stay unread until they are answered for themselves.
+    // message shows whole on the page's left half, and reading it answers that one notice, so the capsule follows the
+    // remaining unread count (other unread mails keep it waiting).
     private void OpenNoticeApp(NotifyStore store)
     {
         // The page on screen decides which program a click deals with. A pill rebuilt since can hold a notice that has been
@@ -767,6 +779,7 @@ public partial class MainWindow
         {
             _notifySelected = latest.Id;
             _notifyBuilt = "";
+            if (!latest.Read) store.MarkRead(latest.Id);
             if (!IsNotifyPage) SelectPage(DeckPage.Notify, remember: false);
             if (!_expanded) SetExpanded(true); else RenderNotify();
             return;

@@ -79,7 +79,19 @@ internal sealed class GitHubUpdates : IAppUpdateBackend
         get
         {
             if (Pending() is { } pending) return new AppRelease(pending.Version, ReleaseNotes.Of(pending.Notes), pending.Size);
-            DeleteStaging(); return null;
+            // A pending record that is no longer newer than this copy is the mark of an install that just landed: the
+            // helper replaced the folder's exe with the version it named, and this is that version's first start. That is
+            // the one safe moment to remove the older versioned copies sitting next to the running exe. A clean sweep
+            // drops the pending record with the rest of the cache, so ordinary starts do no work at all; if a candidate
+            // is still locked, only the tiny pending record is kept so the next start retries instead of waiting for a
+            // whole new release.
+            if (JustInstalled())
+            {
+                bool clean = CleanupAfterInstall();
+                DeleteStaging(keepPending: !clean);
+            }
+            else DeleteStaging();
+            return null;
         }
     }
 
@@ -365,14 +377,91 @@ internal sealed class GitHubUpdates : IAppUpdateBackend
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException) { return null; }
     }
 
-    private void DeleteStaging()
+    // True only when a pending record still names this version or an older one: the replacement helper has already put
+    // that version in the app folder (Pending() would have returned null), so this start follows a successful install.
+    // False on a fresh install or any ordinary start that never staged a package, which keeps the sweep from touching
+    // anything unless an update actually landed.
+    private bool JustInstalled()
     {
-        try { if (Directory.Exists(_staging)) Directory.Delete(_staging, true); }
+        try
+        {
+            var path = Path.Combine(_staging, PendingFile);
+            if (!File.Exists(path)) return false;
+            var pending = JsonSerializer.Deserialize<PendingUpdate>(File.ReadAllText(path), JsonOptions);
+            return pending is not null && ApplicationVersion.Compare(pending.Version, CurrentVersion) <= 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or JsonException) { return false; }
+    }
+
+    // The executable the user first downloaded carries its version in the name (OrangeIsland-1.0.2-windows-x64.exe), and
+    // the replacement helper copies the new package in under the fixed name OrangeIsland.exe. That leaves the old numbered
+    // copy — and any backup folder a previous helper made — behind in the app folder on every update. Remove them here,
+    // once the new version is known to be running. Deliberately conservative: only the folder holding the running exe is
+    // scanned, only its top level, only files matching the strict release-asset name with a version lower than this one,
+    // and never the running executable itself. Anything a user may have placed there (other builds, .pdb, .tmp baselines,
+    // other assets) is left alone. Returns false if any candidate was locked, so the sweep can be retried next start.
+    private bool CleanupAfterInstall()
+    {
+        bool clean = true;
+        try
+        {
+            var folder = Path.GetDirectoryName(_appPath);
+            if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) return clean;
+            // Backup folders come from PortableUpdate's own replacement runs; that class owns the prefix.
+            OrangeIsland.Core.PortableUpdate.CleanupBackups(folder);
+            string running = Environment.ProcessPath ?? _appPath;
+            foreach (var file in Directory.GetFiles(folder, "OrangeIsland-*-windows-x64.exe"))
+            {
+                if (string.Equals(file, running, StringComparison.OrdinalIgnoreCase)) continue;
+                var name = Path.GetFileName(file);
+                var match = System.Text.RegularExpressions.Regex.Match(name,
+                    @"^OrangeIsland-([0-9]+\.[0-9]+\.[0-9]+)-windows-x64\.exe$",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+                if (!match.Success) continue;
+                if (ApplicationVersion.Compare(match.Groups[1].Value, CurrentVersion) >= 0) continue;
+                if (!TryDelete(file)) clean = false;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { clean = false; }
+        return clean;
+    }
+
+    private void DeleteStaging(bool keepPending = false)
+    {
+        try
+        {
+            if (!Directory.Exists(_staging)) return;
+            // Delete files one by one. A single recursive Directory.Delete is all-or-nothing: one momentary
+            // handle on the freshly downloaded package (real-time antivirus or a search indexer scanning it
+            // right as the app reads pending.json) would leave the WHOLE cache behind and strand it forever,
+            // because the pending record would go missing with that failed attempt. TryDelete now retries
+            // short-lived locks, and a file that truly stays locked is swept on a later start while the
+            // pending record is still here. keepPending preserves that record when an old exe was locked.
+            foreach (var file in Directory.GetFiles(_staging))
+            {
+                if (keepPending && string.Equals(Path.GetFileName(file), PendingFile, StringComparison.OrdinalIgnoreCase)) continue;
+                TryDelete(file);
+            }
+            if (keepPending) return;
+            foreach (var dir in Directory.GetDirectories(_staging))
+                try { Directory.Delete(dir, true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            try { Directory.Delete(_staging); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
-    private static void TryDelete(string path)
+    private static bool TryDelete(string path)
     {
-        try { File.Delete(path); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        // A just-written or just-downloaded file can be held for a moment by antivirus / the search indexer.
+        // Retry a few times over ~180 ms before giving up, so a transient lock does not strand the cache.
+        for (int attempt = 0; ; attempt++)
+        {
+            try { File.Delete(path); return true; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                if (attempt >= 3) return false;
+                System.Threading.Thread.Sleep(60);
+            }
+        }
     }
 }

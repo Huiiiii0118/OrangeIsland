@@ -1,5 +1,8 @@
+using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace OrangeIsland.Core;
 
@@ -147,7 +150,116 @@ public sealed class NotifyStore
             if (items is not null) _items.AddRange(items.Where(item => item is not null && item.Program.Length > 0));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { _items.Clear(); }
+        // A mail saved by an earlier build could hold its quoted-printable HTML raw, un-decoded. Repair such bodies on
+        // load so the history shows readable text without waiting for the mail to arrive again.
+        foreach (var item in _items)
+            if (item.Source == NotifySource.Mail && NeedsMailRepair(item.Body))
+                item.Body = RepairMail(item.Body);
+        CollapseFlashes();
     }
+
+    // A taskbar flash carries no message text, so every pulse of the same program adds an identical notice (Add is called
+    // with fresh:true on purpose). When a window is misattributed — a shared WeChatAppEx container that belongs to another
+    // app, fixed in NotifyPrograms — that floods the store with hundreds of identical read entries and pushes the real
+    // notices out of the capped list. Keep only the newest of any identical, already-read run that grew past a small
+    // threshold. Untouched: unread notices (they still count on the capsule), distinct messages, and every mail.
+    private const int FlashRunThreshold = 5;
+    private void CollapseFlashes()
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var item in _items)
+            if (item.Read && item.Key.Length > 0) counts[item.Key] = counts.GetValueOrDefault(item.Key) + 1;
+        var flooded = counts.Where(pair => pair.Value > FlashRunThreshold).Select(pair => pair.Key)
+            .ToHashSet(StringComparer.Ordinal);
+        if (flooded.Count == 0) return;
+        // _items is newest-first: the first entry of a flooded, read key is the newest of that run.
+        var kept = new HashSet<string>(StringComparer.Ordinal);
+        var keptItems = new List<NotifyItem>(_items.Count);
+        foreach (var item in _items)
+        {
+            if (item.Read && flooded.Contains(item.Key) && !kept.Add(item.Key)) continue;
+            keptItems.Add(item);
+        }
+        _items.Clear();
+        _items.AddRange(keptItems);
+        // Load runs from the constructor after _path is set; persisting here clears the flood for good. No Changed is
+        // raised because nothing is being displayed yet.
+        Save();
+    }
+
+    // A body is a raw quoted-printable MIME fragment when it carries many "=XX" escapes, or HTML tags left in the text.
+    // Chat notices never do, and a normal mail body has at most a stray "=", so a threshold keeps healthy text intact.
+    private static readonly Regex QpEscape = new(@"=[0-9A-Fa-f]{2}", RegexOptions.Compiled);
+    private static readonly Regex HtmlTag = new(@"</?[a-zA-Z][^>]*>", RegexOptions.Compiled);
+
+    // GB18030 / Big5 aliases need the code-pages provider; registering twice is harmless.
+    static NotifyStore() => Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+    private static bool NeedsMailRepair(string body)
+        => QpEscape.Matches(body).Count >= 3 || HtmlTag.Matches(body).Count >= 2;
+
+    // Undo the one encoding an old mail notice could be saved with: quoted-printable bytes, then the bytes as their
+    // charset, then HTML stripped to words. If none of that reads better than the original, keep the original.
+    private static string RepairMail(string body)
+    {
+        byte[] bytes;
+        try { bytes = Encoding.Latin1.GetBytes(body); }
+        catch (ArgumentException) { return body; }
+        var decoded = new List<byte>(bytes.Length);
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            if (bytes[i] != (byte)'=') { decoded.Add(bytes[i]); continue; }
+            if (i + 2 < bytes.Length && Hex(bytes[i + 1]) >= 0 && Hex(bytes[i + 2]) >= 0)
+            {
+                decoded.Add((byte)(Hex(bytes[i + 1]) * 16 + Hex(bytes[i + 2]))); i += 2;
+            }
+            else if (i + 1 < bytes.Length && bytes[i + 1] == (byte)'\n') { /* soft line break */ }
+            else if (i + 2 < bytes.Length && bytes[i + 1] == (byte)'\r' && bytes[i + 2] == (byte)'\n') i += 2;
+            else decoded.Add((byte)'=');
+        }
+        string? best = null;
+        foreach (var charset in new[] { "utf-8", "gb18030", "big5" })
+        {
+            string candidate;
+            try { candidate = Encoding.GetEncoding(charset).GetString([.. decoded]); }
+            catch (ArgumentException) { continue; }
+            int damaged = candidate.Count(c => c == '\uFFFD');
+            // Prefer the first charset (UTF-8) on a tie: only a strictly cleaner decode displaces the current best.
+            if (best is null || damaged < best.Count(c => c == '\uFFFD')) best = candidate;
+            if (damaged == 0) break;
+        }
+        if (best is null) return body;
+        string text = HtmlTag.Replace(best, " ").Replace("&nbsp;", " ").Replace("&amp;", "&")
+            .Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"").Replace("&#39;", "'");
+        while (text.Contains("  ", StringComparison.Ordinal)) text = text.Replace("  ", " ", StringComparison.Ordinal);
+        text = text.Replace("\r", " ").Replace("\n", " ").Trim();
+        // Some old bodies were stored as plain text that only needed its HTML tags removed; stripping alone can then
+        // read better than a charset round-trip. Compare with a quality score that penalises leftover "=XX" escapes:
+        // comparing raw readable counts would favour the undecoded body, whose hex digits look like letters.
+        string strippedOnly = HtmlTag.Replace(body, " ").Replace("&nbsp;", " ");
+        while (strippedOnly.Contains("  ", StringComparison.Ordinal)) strippedOnly = strippedOnly.Replace("  ", " ", StringComparison.Ordinal);
+        strippedOnly = strippedOnly.Trim();
+        return Quality(text) >= Quality(strippedOnly) ? text : strippedOnly;
+    }
+
+    // How readable a repaired body is: words count, decoding damage and leftover quoted-printable escapes count against.
+    private static double Quality(string s)
+    {
+        int cjk = 0, letters = 0, damaged = 0;
+        foreach (char c in s)
+        {
+            if (c == '\uFFFD') damaged++;
+            else if (c is >= '\u4e00' and <= '\u9fff') cjk++;
+            else if (char.IsLetterOrDigit(c)) letters++;
+        }
+        return cjk * 3.0 + letters - damaged * 12.0 - QpEscape.Matches(s).Count * 6.0;
+    }
+
+    private static int Hex(byte c) => c switch
+    {
+        >= (byte)'0' and <= (byte)'9' => c - '0', >= (byte)'A' and <= (byte)'F' => c - 'A' + 10,
+        >= (byte)'a' and <= (byte)'f' => c - 'a' + 10, _ => -1
+    };
 
     private void Save()
     {

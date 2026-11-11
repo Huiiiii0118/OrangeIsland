@@ -1,5 +1,7 @@
 using System.Net.NetworkInformation;
+using System.Windows;
 using Microsoft.Win32;
+using OrangeIsland.Core;
 
 namespace OrangeIsland;
 
@@ -27,6 +29,33 @@ public partial class App
         NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
         SystemEvents.PowerModeChanged -= PowerModeChanged;
         Updates.Changed -= UpdateNoticeChanged;
+    }
+
+    // A download started from the update dialog's "background" button. The dialog closes so the app is fully usable; the
+    // download runs on AppUpdates (independent of any window), the About page swaps its row for an "updating" progress
+    // bar, and a successful download installs itself. Cancel/failure simply returns the About page to its normal controls.
+    internal void StartBackgroundUpdate()
+    {
+        if (Exiting || Updates.Stage is not AppUpdateStage.Available || !Updates.CanInstall) return;
+        Updates.BeginBackground();
+        _ = CompleteBackgroundUpdate();
+    }
+
+    private async Task CompleteBackgroundUpdate()
+    {
+        try
+        {
+            await Updates.DownloadAsync(Lifetime.Token);
+            if (Exiting || Updates.Stage != AppUpdateStage.Ready) return;
+            // Ready means the package is staged and verified. Installing shuts the app down; there is no UI to restore.
+            InstallUpdate();
+        }
+        finally
+        {
+            // Reached only when the download was cancelled or failed (a successful install exits the process). Normal
+            // wording and buttons come back, and nothing is left stuck showing "updating".
+            Updates.EndBackground();
+        }
     }
 
     internal void CheckUpdatesIfDue()
